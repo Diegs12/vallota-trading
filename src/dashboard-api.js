@@ -25,6 +25,19 @@ function updateLiveState(updates) {
   Object.assign(liveState, updates, { lastUpdated: new Date().toISOString() });
 }
 
+// CORS — allow dashboard on vallotaventures.com and localhost to fetch data
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowed = ["http://localhost:3000", "https://vallotaventures.com", "https://www.vallotaventures.com"];
+  if (allowed.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+  next();
+});
+
 // Serve static dashboard
 app.use(express.static(path.join(__dirname, "..", "public")));
 
