@@ -6,6 +6,8 @@ const { computeAll } = require("./indicators");
 const { analyzeMarket } = require("./analyst");
 const { safeAnalyze } = require("./failsafe");
 const { getFullResearch } = require("./grok-research");
+const { getAllDerivativesData } = require("./derivatives");
+const { getAllMacroData } = require("./macro");
 const { startDashboard, updateLiveState } = require("./dashboard-api");
 const { logTrade, getTradeStats, getTradesLast24h } = require("./trade-log");
 const { shouldReview, reviewPastTrades } = require("./self-review");
@@ -40,12 +42,14 @@ async function runCycle() {
   console.log(`${"=".repeat(60)}`);
 
   try {
-    // 1. Fetch market data + historical candles + Grok research in parallel
-    console.log("\nFetching market data, historical candles & Grok research...");
-    const [marketData, historicalData, grokResearch] = await Promise.all([
+    // 1. Fetch ALL data sources in parallel
+    console.log("\nFetching market data, candles, derivatives, macro & Grok...");
+    const [marketData, historicalData, grokResearch, derivativesData, macroData] = await Promise.all([
       aggregateMarketData(),
       getAllCoreTokenData(),
       getFullResearch(),
+      getAllDerivativesData(),
+      getAllMacroData(),
     ]);
 
     console.log(
@@ -83,10 +87,12 @@ async function runCycle() {
       );
     }
 
-    // Enrich market data with computed indicators + Grok research
+    // Enrich market data with all intelligence
     marketData.technicals = technicals;
     marketData.timeframeSummary = timeframeSummary;
     marketData.grokResearch = grokResearch;
+    marketData.derivatives = derivativesData;
+    marketData.macro = macroData;
 
     // Update dashboard
     updateLiveState({

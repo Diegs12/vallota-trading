@@ -55,6 +55,11 @@ RULES:
 11. Grok social intelligence provides real-time X/Twitter sentiment — use it to confirm or contradict technical signals
 12. If Grok reports breaking news (regulatory, hacks, major announcements), weigh it heavily — news moves markets before indicators catch up
 13. If social sentiment strongly disagrees with technicals, reduce position size and confidence
+14. DERIVATIVES DATA is critical: extreme positive funding = longs overleveraged (fade them). Extreme negative = shorts overleveraged (squeeze incoming)
+15. If open interest is rising + price falling = liquidation cascade risk. Reduce exposure.
+16. Long/short ratio > 2.0 = contrarian sell. < 0.5 = contrarian buy.
+17. BTC dominance rising = altcoin weakness. Prefer BTC or USDC. BTC.D falling = alt season, look for alt entries.
+18. Stablecoin market cap rising = new money entering crypto (bullish). Falling = money leaving (bearish).
 
 ${lessons ? `\nSELF-IMPROVEMENT NOTES (from reviewing your past trades):\n${lessons}\n` : ""}
 
@@ -102,10 +107,16 @@ MARKET DATA:
 DEFI TVL (top protocols):
 ${JSON.stringify(marketData.defiTvl || [], null, 2)}
 
+${marketData.derivatives ? `DERIVATIVES DATA (funding rates, open interest, long/short ratios):
+${JSON.stringify(marketData.derivatives, null, 2)}` : ""}
+
+${marketData.macro ? `MACRO DATA (BTC dominance, stablecoin flows, market trend):
+${JSON.stringify(marketData.macro, null, 2)}` : ""}
+
 ${marketData.grokResearch ? `REAL-TIME SOCIAL INTELLIGENCE (from Grok/X):
 ${JSON.stringify(marketData.grokResearch, null, 2)}` : ""}
 
-Based on all indicators, market data, and social intelligence, what is your trading decision? Respond with JSON only.`;
+Based on ALL data — technicals, derivatives, macro, and social intelligence — what is your trading decision? Respond with JSON only.`;
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
