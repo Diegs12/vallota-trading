@@ -120,7 +120,15 @@ Write the email in this structure:
 
 8. STATS — quick summary numbers
 
-Format as HTML email with clean, dark-themed styling. Use inline CSS.
+Format as HTML email with a LIGHT theme — white/light gray background, dark text. This is critical because most email clients (Gmail, Outlook) strip dark backgrounds and it becomes unreadable.
+Style rules:
+- Background: white (#ffffff) or light gray (#f5f5f5)
+- Body text: dark (#1a1a1a)
+- Headings: dark navy (#0f172a)
+- Accent color for highlights: teal (#0d9488) or blue (#2563eb)
+- Use inline CSS on every element (email clients strip <style> tags)
+- Max width 600px, centered
+- Clean, professional, modern look
 Keep it under 800 words. Make it something people actually WANT to read.
 
 Respond with JSON:
