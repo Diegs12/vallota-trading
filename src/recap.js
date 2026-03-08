@@ -120,16 +120,43 @@ Write the email in this structure:
 
 8. STATS — quick summary numbers
 
-Format as HTML email with a LIGHT theme — white/light gray background, dark text. This is critical because most email clients (Gmail, Outlook) strip dark backgrounds and it becomes unreadable.
-Style rules:
-- Background: white (#ffffff) or light gray (#f5f5f5)
-- Body text: dark (#1a1a1a)
-- Headings: dark navy (#0f172a)
-- Accent color for highlights: teal (#0d9488) or blue (#2563eb)
-- Use inline CSS on every element (email clients strip <style> tags)
-- Max width 600px, centered
-- Clean, professional, modern look
-Keep it under 800 words. Make it something people actually WANT to read.
+Format as a beautiful HTML email. Use inline CSS on EVERY element (email clients strip <style> tags). Max width 600px, centered.
+
+Use this EXACT theme: "${process.env.RECAP_THEME || "clean"}"
+
+THEME DEFINITIONS:
+
+If theme is "clean" (Schertzinger-inspired, minimalist):
+- Background: #ffffff
+- Card/section background: #f8fafc
+- Body text: #1e293b (slate-800)
+- Headings: #0f172a (slate-900), font-weight 700, Inter/system sans-serif
+- Accent: #0ea5e9 (sky-500) for highlights, links, key numbers
+- Secondary accent: #10b981 (emerald-500) for positive/buy, #ef4444 (red-500) for sell/negative
+- Borders: #e2e8f0 (slate-200), 1px solid
+- Stat boxes: white background, subtle border, large bold numbers in accent color
+- Lots of whitespace, generous padding (24px sections)
+- Typography: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif
+- NO emojis in headings, clean and professional
+- Subtle top border accent: 4px solid #0ea5e9 at the very top
+
+If theme is "dark" (terminal/hacker aesthetic):
+- Background: #0f172a
+- Card background: #1e293b
+- Body text: #cbd5e1
+- Headings: #f1f5f9
+- Accent: #22d3ee (cyan)
+- Use monospace font for stats
+- NOTE: dark themes render poorly in some email clients — add fallback background colors
+
+If theme is "midnight" (deep purple/gradient feel):
+- Background: #0c0a1a
+- Cards: #1a1535
+- Accent: #a78bfa (violet-400)
+- Headings: #e2e8f0
+- Body text: #94a3b8
+
+Keep it under 800 words. Make it something people actually WANT to read — clean, scannable, premium feel.
 
 Respond with JSON:
 {
