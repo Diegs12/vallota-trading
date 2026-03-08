@@ -11,6 +11,7 @@ const { getAllMacroData } = require("./macro");
 const { startDashboard, updateLiveState } = require("./dashboard-api");
 const { logTrade, getTradeStats, getTradesLast24h } = require("./trade-log");
 const { shouldReview, reviewPastTrades } = require("./self-review");
+const { checkAndSendRecaps, sendManualRecap } = require("./recap");
 const {
   recordEntry,
   clearPosition,
@@ -235,6 +236,9 @@ async function runCycle() {
       await reviewPastTrades(marketData);
     }
 
+    // 10. Check if it's time to send a recap email
+    await checkAndSendRecaps();
+
     // 10. Print 24h summary periodically (every 10 cycles)
     if (cycleCount % 10 === 0) {
       print24hSummary();
@@ -385,11 +389,16 @@ switch (command) {
   case "stats":
     showStats();
     break;
+  case "recap":
+    sendManualRecap(process.argv[3] || "daily").catch(console.error);
+    break;
   default:
     console.log("Vallota Trading Bot v1.0\n");
     console.log("Usage:");
     console.log("  node src/bot.js start       — Start the trading bot");
     console.log("  node src/bot.js test-data   — Test market data + indicators (no API key needed)");
     console.log("  node src/bot.js stats       — Show trade statistics & 24h log");
+    console.log("  node src/bot.js recap       — Generate & send a recap email now");
+    console.log("  node src/bot.js recap weekly — Generate a weekly recap");
     break;
 }
