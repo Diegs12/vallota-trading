@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vallota Trading | Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0a0e17;
+      --surface: #111827;
+      --surface2: #1a2235;
+      --border: #1e293b;
+      --text: #e2e8f0;
+      --text-dim: #64748b;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #3b82f6;
+      --amber: #f59e0b;
+      --purple: #a855f7;
+      --cyan: #06b6d4;
+    }
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+    .header h1 span { color: var(--cyan); }
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .mode-badge {
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .mode-paper { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+    .mode-live { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+
+    /* Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      margin: 1px;
+    }
+    .grid > * { background: var(--surface); }
+
+    /* Cards */
+    .card {
+      padding: 16px 20px;
+    }
+    .card-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .card-sub {
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .neutral { color: var(--text-dim); }
+
+    /* Main content */
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+    }
+    .main > * { background: var(--surface); }
+
+    /* Panels */
+    .panel {
+      padding: 16px 20px;
+      min-height: 200px;
+    }
+    .panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--cyan);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* AI Decision */
+    .decision-box {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .decision-action {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .decision-action.buy { color: var(--green); }
+    .decision-action.sell { color: var(--red); }
+    .decision-action.hold { color: var(--amber); }
+    .decision-reasoning {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    .decision-meta {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+      font-size: 11px;
+    }
+    .confidence-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--surface);
+      border-radius: 2px;
+      margin-top: 8px;
+    }
+    .confidence-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.5s;
+    }
+
+    /* Trade log */
+    .trade-list { list-style: none; }
+    .trade-item {
+      display: grid;
+      grid-template-columns: 70px 50px 55px 50px 1fr;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      align-items: center;
+    }
+    .trade-item:last-child { border-bottom: none; }
+    .trade-time { color: var(--text-dim); }
+    .trade-action {
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-align: center;
+    }
+    .trade-action.buy { background: rgba(34,197,94,0.15); color: var(--green); }
+    .trade-action.sell { background: rgba(239,68,68,0.15); color: var(--red); }
+    .trade-action.hold { background: rgba(245,158,11,0.1); color: var(--amber); }
+    .trade-reason {
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Indicators */
+    .indicator-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .indicator-card {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .indicator-token {
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: var(--cyan);
+    }
+    .indicator-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      padding: 2px 0;
+    }
+    .indicator-label { color: var(--text-dim); }
+
+    /* Market table */
+    .market-table {
+      width: 100%;
+      font-size: 12px;
+      border-collapse: collapse;
+    }
+    .market-table th {
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .market-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .market-table tr:hover { background: var(--surface2); }
+
+    /* Fear & Greed */
+    .fng-meter {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .fng-value {
+      font-size: 36px;
+      font-weight: 700;
+    }
+    .fng-bar {
+      flex: 1;
+      height: 8px;
+      background: linear-gradient(to right, #ef4444, #f59e0b, #22c55e);
+      border-radius: 4px;
+      position: relative;
+    }
+    .fng-marker {
+      position: absolute;
+      top: -4px;
+      width: 16px; height: 16px;
+      background: white;
+      border-radius: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 0 6px rgba(0,0,0,0.5);
+    }
+
+    /* Full width sections */
+    .full-width {
+      grid-column: 1 / -1;
+    }
+
+    /* Self-review */
+    .review-box {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 10px;
+      border-left: 3px solid var(--purple);
+    }
+    .review-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--purple);
+      margin-bottom: 6px;
+    }
+    .review-text {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    .review-list {
+      list-style: none;
+      padding: 0;
+    }
+    .review-list li {
+      font-size: 12px;
+      color: var(--text-dim);
+      padding: 3px 0;
+    }
+    .review-list li::before {
+      content: '→ ';
+      color: var(--purple);
+    }
+
+    /* Scrollable */
+    .scrollable {
+      max-height: 350px;
+      overflow-y: auto;
+    }
+    .scrollable::-webkit-scrollbar { width: 4px; }
+    .scrollable::-webkit-scrollbar-track { background: var(--surface); }
+    .scrollable::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Last updated */
+    .last-updated {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 8px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1><span>VALLOTA</span> TRADING</h1>
+    <div class="header-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="bot-status">Connecting...</span>
+      <span class="mode-badge mode-paper" id="mode-badge">PAPER</span>
+      <span id="cycle-count" style="color:var(--text-dim)">Cycle #0</span>
+    </div>
+  </div>
+
+  <!-- Top Stats -->
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">Portfolio Value</div>
+      <div class="card-value" id="portfolio-value">$0</div>
+      <div class="card-sub" id="portfolio-pnl">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Fear & Greed Index</div>
+      <div class="card-value" id="fng-value">--</div>
+      <div class="card-sub" id="fng-label">Loading...</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Trades (24h)</div>
+      <div class="card-value" id="trades-24h">0</div>
+      <div class="card-sub" id="trades-executed">0 executed</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Avg Confidence</div>
+      <div class="card-value" id="avg-confidence">0%</div>
+      <div class="card-sub" id="risk-profile">moderate</div>
+    </div>
+  </div>
+
+  <!-- Main panels -->
+  <div class="main">
+    <!-- Left: AI Decision + Trade Log -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">Latest AI Decision</div>
+        <div class="decision-box" id="decision-box">
+          <div class="decision-action hold" id="decision-action">WAITING</div>
+          <div class="decision-reasoning" id="decision-reasoning">Bot is starting up...</div>
+          <div class="confidence-bar">
+            <div class="confidence-fill" id="confidence-fill" style="width: 0%; background: var(--amber);"></div>
+          </div>
+          <div class="decision-meta">
+            <span id="decision-token">--</span>
+            <span id="decision-amount">--</span>
+            <span id="decision-confidence">Confidence: --</span>
+          </div>
+        </div>
+        <div id="decision-timeframe" style="font-size:11px; color:var(--text-dim); margin-top:4px;"></div>
+        <div id="decision-risk" style="font-size:11px; color:var(--amber); margin-top:4px;"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Trade Log (24h)</div>
+        <div class="scrollable">
+          <ul class="trade-list" id="trade-list">
+            <li style="color:var(--text-dim); font-size:12px; padding:20px 0; text-align:center;">No trades yet</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Indicators + Market -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">Technical Indicators (Computed)</div>
+        <div class="indicator-grid" id="indicator-grid">
+          <div style="color:var(--text-dim); font-size:12px;">Loading indicators...</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Market Prices</div>
+        <div class="scrollable">
+          <table class="market-table">
+            <thead>
+              <tr><th>Token</th><th>Price</th><th>24h</th><th>Volume</th></tr>
+            </thead>
+            <tbody id="market-table-body">
+              <tr><td colspan="4" style="color:var(--text-dim); text-align:center;">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Full width: Grok Research -->
+    <div class="panel full-width">
+      <div class="panel-title" style="color: var(--amber);">Grok Social Intelligence (X/Twitter)</div>
+      <div id="grok-container">
+        <div style="color:var(--text-dim); font-size:12px;">Loading Grok research...</div>
+      </div>
+    </div>
+
+    <!-- Full width: Self-Review -->
+    <div class="panel full-width">
+      <div class="panel-title">AI Self-Review & Learning</div>
+      <div id="reviews-container">
+        <div style="color:var(--text-dim); font-size:12px;">No reviews yet — first review happens after ~30 trading cycles (~1 hour)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="last-updated">
+    Last updated: <span id="last-updated">--</span> | Auto-refreshes every 10s
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function formatUSD(n) {
+      if (n == null) return '--';
+      return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatPct(n) {
+      if (n == null) return '--';
+      const sign = n >= 0 ? '+' : '';
+      return sign + n.toFixed(2) + '%';
+    }
+
+    function formatTime(ts) {
+      return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatVolume(v) {
+      if (!v) return '--';
+      if (v >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
+      if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+      return '$' + v.toLocaleString();
+    }
+
+    async function fetchJSON(url) {
+      const res = await fetch(url);
+      return res.json();
+    }
+
+    function getConfidenceColor(conf) {
+      if (conf >= 80) return 'var(--green)';
+      if (conf >= 60) return 'var(--blue)';
+      if (conf >= 40) return 'var(--amber)';
+      return 'var(--red)';
+    }
+
+    function getRSIColor(rsi) {
+      if (rsi > 70) return 'var(--red)';
+      if (rsi < 30) return 'var(--green)';
+      return 'var(--text)';
+    }
+
+    async function update() {
+      try {
+        const [status, portfolio, market, indicators, trades, stats, decision, reviews, research] = await Promise.all([
+          fetchJSON('/api/status'),
+          fetchJSON('/api/portfolio'),
+          fetchJSON('/api/market'),
+          fetchJSON('/api/indicators'),
+          fetchJSON('/api/trades'),
+          fetchJSON('/api/stats'),
+          fetchJSON('/api/decision'),
+          fetchJSON('/api/reviews'),
+          fetchJSON('/api/research'),
+        ]);
+
+        // Status
+        $('bot-status').textContent = status.status === 'running' ? 'Online' : 'Offline';
+        $('status-dot').style.background = status.status === 'running' ? 'var(--green)' : 'var(--red)';
+        $('cycle-count').textContent = 'Cycle #' + status.cycleCount;
+        const badge = $('mode-badge');
+        badge.textContent = (status.mode || 'paper').toUpperCase();
+        badge.className = 'mode-badge mode-' + (status.mode || 'paper');
+
+        // Portfolio
+        const tv = portfolio.totalValue ?? portfolio.balances?.usdc ?? 0;
+        $('portfolio-value').textContent = formatUSD(tv);
+        const pnl = portfolio.pnl ?? 0;
+        const pnlPct = portfolio.pnlPercent ?? 0;
+        $('portfolio-pnl').textContent = formatPct(pnlPct) + ' (' + formatUSD(pnl) + ')';
+        $('portfolio-pnl').className = 'card-sub ' + (pnl >= 0 ? 'positive' : 'negative');
+
+        // Fear & Greed
+        if (market.fearGreed) {
+          $('fng-value').textContent = market.fearGreed.value;
+          $('fng-label').textContent = market.fearGreed.value_classification;
+          const val = parseInt(market.fearGreed.value);
+          if (val <= 25) $('fng-value').style.color = 'var(--red)';
+          else if (val <= 50) $('fng-value').style.color = 'var(--amber)';
+          else $('fng-value').style.color = 'var(--green)';
+        }
+
+        // Stats
+        $('trades-24h').textContent = stats.last24h?.decisions || 0;
+        $('trades-executed').textContent = (stats.last24h?.executed || 0) + ' executed';
+        $('avg-confidence').textContent = (stats.avgConfidence || 0) + '%';
+        $('risk-profile').textContent = status.riskProfile || 'moderate';
+
+        // Decision
+        if (decision && decision.action) {
+          const actionEl = $('decision-action');
+          actionEl.textContent = decision.action.toUpperCase();
+          actionEl.className = 'decision-action ' + decision.action;
+          $('decision-reasoning').textContent = decision.reasoning || '';
+          $('decision-token').textContent = decision.token ? decision.token.toUpperCase() : '--';
+          $('decision-amount').textContent = decision.amount_usd ? formatUSD(decision.amount_usd) : '--';
+          $('decision-confidence').textContent = 'Confidence: ' + (decision.confidence || 0) + '%';
+          const conf = decision.confidence || 0;
+          $('confidence-fill').style.width = conf + '%';
+          $('confidence-fill').style.background = getConfidenceColor(conf);
+          $('decision-timeframe').textContent = decision.timeframe_alignment || '';
+          $('decision-risk').textContent = decision.risk_notes || '';
+        }
+
+        // Trade log
+        const tradeList = $('trade-list');
+        if (trades.length === 0) {
+          tradeList.innerHTML = '<li style="color:var(--text-dim); font-size:12px; padding:20px 0; text-align:center;">No trades yet</li>';
+        } else {
+          tradeList.innerHTML = trades.slice().reverse().map(t => `
+            <li class="trade-item">
+              <span class="trade-time">${formatTime(t.timestamp)}</span>
+              <span class="trade-action ${t.action}">${t.action}</span>
+              <span>${t.token ? t.token.toUpperCase() : '--'}</span>
+              <span>${t.confidence || 0}%</span>
+              <span class="trade-reason" title="${(t.reasoning || '').replace(/"/g, '&quot;')}">${t.executed ? '●' : '○'} ${t.reasoning || ''}</span>
+            </li>
+          `).join('');
+        }
+
+        // Indicators
+        const ig = $('indicator-grid');
+        const summary = indicators.timeframeSummary || {};
+        const tokens = Object.keys(summary);
+        if (tokens.length > 0) {
+          ig.innerHTML = tokens.map(token => {
+            const tfs = summary[token];
+            const daily = tfs['1d'] || {};
+            const hourly = tfs['1h'] || {};
+            const fourH = tfs['4h'] || {};
+            return `
+              <div class="indicator-card">
+                <div class="indicator-token">${token.toUpperCase()}</div>
+                <div class="indicator-row">
+                  <span class="indicator-label">RSI (1d)</span>
+                  <span style="color:${getRSIColor(daily.rsi)}">${daily.rsi ?? '--'}</span>
+                </div>
+                <div class="indicator-row">
+                  <span class="indicator-label">RSI (1h)</span>
+                  <span style="color:${getRSIColor(hourly.rsi)}">${hourly.rsi ?? '--'}</span>
+                </div>
+                <div class="indicator-row">
+                  <span class="indicator-label">MACD (4h)</span>
+                  <span class="${fourH.macdTrend === 'bullish' ? 'positive' : 'negative'}">${fourH.macdTrend ?? '--'}</span>
+                </div>
+                <div class="indicator-row">
+                  <span class="indicator-label">Trend (1d)</span>
+                  <span class="${daily.trend === 'bullish' ? 'positive' : 'negative'}">${daily.trend ?? '--'}</span>
+                </div>
+                <div class="indicator-row">
+                  <span class="indicator-label">BB (1h)</span>
+                  <span>${hourly.bbSignal ?? '--'}</span>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+
+        // Market prices
+        const tbody = $('market-table-body');
+        if (market.prices && market.prices.length > 0) {
+          tbody.innerHTML = market.prices.map(p => `
+            <tr>
+              <td style="font-weight:600">${p.symbol.toUpperCase()}</td>
+              <td>${formatUSD(p.price)}</td>
+              <td class="${p.change24h >= 0 ? 'positive' : 'negative'}">${formatPct(p.change24h)}</td>
+              <td style="color:var(--text-dim)">${formatVolume(p.volume)}</td>
+            </tr>
+          `).join('');
+        }
+
+        // Reviews
+        const rc = $('reviews-container');
+        if (reviews.length > 0) {
+          const latest = reviews[reviews.length - 1];
+          const ins = latest.insights || {};
+          rc.innerHTML = `
+            <div class="review-box">
+              <div class="review-title">Latest Review (${formatTime(latest.reviewedAt)} — ${latest.tradesReviewed} trades analyzed)</div>
+              <div class="review-text">${ins.overall_assessment || ''}</div>
+              ${ins.lessons_learned ? `
+                <div style="margin-top:8px; font-size:11px; color:var(--purple); font-weight:600;">Lessons Learned:</div>
+                <ul class="review-list">${ins.lessons_learned.map(l => `<li>${l}</li>`).join('')}</ul>
+              ` : ''}
+              ${ins.strategy_adjustments ? `
+                <div style="margin-top:8px; font-size:11px; color:var(--purple); font-weight:600;">Strategy Adjustments:</div>
+                <ul class="review-list">${ins.strategy_adjustments.map(l => `<li>${l}</li>`).join('')}</ul>
+              ` : ''}
+              ${ins.confidence_calibration ? `
+                <div style="margin-top:6px; font-size:11px; color:var(--text-dim);">Confidence: ${ins.confidence_calibration}</div>
+              ` : ''}
+            </div>
+          `;
+        }
+
+        // Grok Research
+        const gc = $('grok-container');
+        if (research && research.sentiment) {
+          const s = research.sentiment;
+          const r = research.regulatory;
+          const sentColor = s.overall_sentiment === 'bullish' ? 'var(--green)' :
+                           s.overall_sentiment === 'bearish' ? 'var(--red)' :
+                           s.overall_sentiment === 'fearful' ? 'var(--red)' : 'var(--amber)';
+          gc.innerHTML = `
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div class="decision-box" style="border-left:3px solid ${sentColor};">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <span style="font-size:13px; font-weight:600; color:${sentColor};">
+                    X Sentiment: ${(s.overall_sentiment || '?').toUpperCase()}
+                  </span>
+                  <span style="font-size:20px; font-weight:700; color:${sentColor};">${s.sentiment_score ?? '--'}</span>
+                </div>
+                ${s.btc_sentiment ? `<div style="font-size:11px; color:var(--text-dim); margin:3px 0;"><b style="color:var(--cyan)">BTC:</b> ${s.btc_sentiment}</div>` : ''}
+                ${s.eth_sentiment ? `<div style="font-size:11px; color:var(--text-dim); margin:3px 0;"><b style="color:var(--cyan)">ETH:</b> ${s.eth_sentiment}</div>` : ''}
+                ${s.sol_sentiment ? `<div style="font-size:11px; color:var(--text-dim); margin:3px 0;"><b style="color:var(--cyan)">SOL:</b> ${s.sol_sentiment}</div>` : ''}
+                ${s.whale_activity ? `<div style="font-size:11px; color:var(--amber); margin-top:6px;">Whales: ${s.whale_activity}</div>` : ''}
+              </div>
+              <div>
+                ${s.breaking_news?.length ? `
+                  <div style="font-size:11px; font-weight:600; color:var(--cyan); margin-bottom:4px;">Breaking News</div>
+                  <ul class="review-list">${s.breaking_news.map(n => `<li style="color:var(--text-dim)">${n}</li>`).join('')}</ul>
+                ` : ''}
+                ${s.trending_narratives?.length ? `
+                  <div style="font-size:11px; font-weight:600; color:var(--cyan); margin-top:8px; margin-bottom:4px;">Trending Narratives</div>
+                  <ul class="review-list">${s.trending_narratives.map(n => `<li style="color:var(--text-dim)">${n}</li>`).join('')}</ul>
+                ` : ''}
+                ${r ? `
+                  <div style="font-size:11px; font-weight:600; color:var(--amber); margin-top:8px; margin-bottom:4px;">
+                    Regulatory Risk: ${(r.regulatory_risk_level || '?').toUpperCase()}
+                  </div>
+                  <div style="font-size:11px; color:var(--text-dim);">${r.impact_assessment || ''}</div>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        } else {
+          gc.innerHTML = '<div style="color:var(--text-dim); font-size:12px;">Grok research loading on next cycle...</div>';
+        }
+
+        // Timestamp
+        $('last-updated').textContent = new Date().toLocaleTimeString();
+
+      } catch (err) {
+        console.error('Dashboard update error:', err);
+        $('bot-status').textContent = 'Connection Lost';
+        $('status-dot').style.background = 'var(--red)';
+      }
+    }
+
+    // Initial load + auto-refresh
+    update();
+    setInterval(update, 10000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "vallota-trading",
+  "version": "1.0.0",
+  "description": "Vallota Trading Bot — AI-powered crypto trading on Base L2",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js start",
+    "test-data": "node src/bot.js test-data",
+    "stats": "node src/bot.js stats"
+  },
+  "author": "Diego Vallota",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@coinbase/coinbase-sdk": "^0.25.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1"
+  }
+}
