@@ -5,7 +5,7 @@ const { getTradeStats, getTradesLast24h, getRecentTrades, getReviews } = require
 const { getPositions } = require("./stop-loss");
 
 const app = express();
-const PORT = process.env.DASHBOARD_PORT || 3333;
+const PORT = process.env.PORT || process.env.DASHBOARD_PORT || 3333;
 
 // Shared state — set by bot.js each cycle
 let liveState = {
