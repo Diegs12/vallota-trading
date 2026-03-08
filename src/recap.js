@@ -159,7 +159,7 @@ async function sendRecapEmail(recap, toEmail) {
 
   try {
     const { data, error } = await resend.emails.send({
-      from: "Vallota Trading <recap@vallotatrading.com>",
+      from: "Vallota Trading <onboarding@resend.dev>",
       to: [toEmail],
       subject: recap.subject,
       html: recap.html,
