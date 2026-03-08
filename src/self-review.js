@@ -4,6 +4,7 @@
 
 const Anthropic = require("@anthropic-ai/sdk").default;
 const { getRecentTrades, logReview, getLatestReview } = require("./trade-log");
+const { getSharedLessons } = require("./knowledge-sync");
 
 const client = new Anthropic();
 
@@ -29,12 +30,22 @@ async function reviewPastTrades(currentMarketData) {
 
   const previousReview = getLatestReview();
 
+  // Fetch accumulated lessons from all bot instances via Supabase
+  let sharedLessonsBlock = "";
+  try {
+    sharedLessonsBlock = await getSharedLessons();
+  } catch (err) {
+    console.warn("Self-review: Could not fetch shared lessons:", err.message);
+  }
+
   const prompt = `You are reviewing your own past trading decisions as the Vallota Trading Bot.
 
 YOUR RECENT TRADES (last ${trades.length} decisions):
 ${JSON.stringify(trades, null, 2)}
 
 ${previousReview ? `YOUR PREVIOUS SELF-REVIEW:\n${JSON.stringify(previousReview.insights, null, 2)}` : "This is your first self-review."}
+
+${sharedLessonsBlock ? `ACCUMULATED KNOWLEDGE FROM ALL BOT INSTANCES:\n${sharedLessonsBlock}` : ""}
 
 CURRENT MARKET STATE:
 ${JSON.stringify(currentMarketData, null, 2)}

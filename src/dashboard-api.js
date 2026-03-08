@@ -25,10 +25,11 @@ function updateLiveState(updates) {
   Object.assign(liveState, updates, { lastUpdated: new Date().toISOString() });
 }
 
-// CORS — allow dashboard on vallotaventures.com and localhost to fetch data
+// CORS — allow dashboard on vallotaventures.com, localhost, and custom origins
+const EXTRA_ORIGINS = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : [];
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const allowed = ["http://localhost:3000", "https://vallotaventures.com", "https://www.vallotaventures.com"];
+  const allowed = ["http://localhost:3000", "https://vallotaventures.com", "https://www.vallotaventures.com", ...EXTRA_ORIGINS];
   if (allowed.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }

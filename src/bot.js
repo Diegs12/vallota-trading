@@ -18,6 +18,9 @@ const {
   checkAllPositions,
   getPositions,
 } = require("./stop-loss");
+const { syncAll } = require("./knowledge-sync");
+
+const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || "primary";
 
 // Choose real or paper wallet based on mode
 const PAPER_MODE = process.env.TRADING_MODE !== "live";
@@ -239,7 +242,16 @@ async function runCycle() {
     // 10. Check if it's time to send a recap email
     await checkAndSendRecaps();
 
-    // 10. Print 24h summary periodically (every 10 cycles)
+    // 11. Sync knowledge to Supabase every 10 cycles
+    if (cycleCount % 10 === 0) {
+      try {
+        await syncAll(BOT_INSTANCE_ID);
+      } catch (syncErr) {
+        console.warn("Knowledge sync skipped:", syncErr.message);
+      }
+    }
+
+    // 12. Print 24h summary periodically (every 10 cycles)
     if (cycleCount % 10 === 0) {
       print24hSummary();
     }
