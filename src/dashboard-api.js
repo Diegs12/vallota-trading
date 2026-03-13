@@ -1,11 +1,17 @@
 // Dashboard API — serves real-time bot data + static frontend
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const { getTradeStats, getTradesLast24h, getRecentTrades, getReviews } = require("./trade-log");
 const { getPositions } = require("./stop-loss");
 
 const app = express();
 const PORT = process.env.PORT || process.env.DASHBOARD_PORT || 3333;
+
+// API secret for authentication — set API_SECRET in .env / Railway
+const API_SECRET = process.env.API_SECRET;
 
 // Shared state — set by bot.js each cycle
 let liveState = {
@@ -25,22 +31,76 @@ function updateLiveState(updates) {
   Object.assign(liveState, updates, { lastUpdated: new Date().toISOString() });
 }
 
-// CORS — allow dashboard on vallotaventures.com, localhost, and custom origins
-const EXTRA_ORIGINS = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : [];
+// ── Security middleware ──
+
+// Security headers (XSS, clickjacking, MIME sniffing protection)
+app.use(helmet());
+
+// Rate limiting — max 60 requests per minute per IP
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, try again later" },
+});
+app.use("/api/", limiter);
+
+// Body size limit (prevent payload DoS)
+app.use(express.json({ limit: "10kb" }));
+
+// CORS — allow dashboard on vallotaventures.com and localhost only
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const allowed = ["http://localhost:3000", "https://vallotaventures.com", "https://www.vallotaventures.com", ...EXTRA_ORIGINS];
+  const allowed = [
+    "http://localhost:3000",
+    "https://vallotaventures.com",
+    "https://www.vallotaventures.com",
+  ];
   if (allowed.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
   if (req.method === "OPTIONS") return res.status(200).end();
   next();
 });
 
-// Serve static dashboard
+// ── Authentication middleware ──
+// All /api/* routes require a valid API key in the X-API-Key header
+function requireAuth(req, res, next) {
+  if (!API_SECRET) {
+    return res.status(503).json({ error: "API not configured" });
+  }
+
+  const key = req.headers["x-api-key"];
+
+  if (!key || typeof key !== "string" || key.length !== API_SECRET.length) {
+    console.warn(`Auth failure from ${req.ip} — ${req.method} ${req.path}`);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  // Timing-safe comparison to prevent timing attacks
+  const keyBuf = Buffer.from(key);
+  const secretBuf = Buffer.from(API_SECRET);
+  if (!crypto.timingSafeEqual(keyBuf, secretBuf)) {
+    console.warn(`Auth failure from ${req.ip} — ${req.method} ${req.path}`);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  next();
+}
+
+// Public health check (no auth needed)
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", uptime: process.uptime() });
+});
+
+// Serve static dashboard (the frontend handles auth via stored key)
 app.use(express.static(path.join(__dirname, "..", "public")));
+
+// All other API routes require authentication
+app.use("/api/", requireAuth);
 
 // API endpoints
 app.get("/api/status", (req, res) => {
@@ -82,7 +142,7 @@ app.get("/api/indicators", (req, res) => {
 });
 
 app.get("/api/trades", (req, res) => {
-  const hours = parseInt(req.query.hours) || 24;
+  const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 168);
   const trades = hours === 24 ? getTradesLast24h() : getRecentTrades(100);
   res.json(trades);
 });
@@ -108,9 +168,19 @@ app.get("/api/research", (req, res) => {
   res.json(md.grokResearch || null);
 });
 
+// Catch-all error handler — never leak stack traces
+app.use((err, req, res, next) => {
+  console.error("API error:", err.message);
+  res.status(500).json({ error: "Internal server error" });
+});
+
 function startDashboard() {
   app.listen(PORT, () => {
     console.log(`Dashboard running at http://localhost:${PORT}`);
+    if (!API_SECRET) {
+      console.warn("⚠ WARNING: API_SECRET not set — all API endpoints are LOCKED.");
+      console.warn("  Set API_SECRET in .env or Railway to enable the dashboard API.");
+    }
   });
 }
 
