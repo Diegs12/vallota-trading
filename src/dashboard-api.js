@@ -9,6 +9,8 @@ const { getPositions } = require("./stop-loss");
 
 const app = express();
 const PORT = process.env.PORT || process.env.DASHBOARD_PORT || 3333;
+app.disable("x-powered-by");
+app.set("trust proxy", parseInt(process.env.TRUST_PROXY_HOPS || "1", 10));
 
 // API secret for authentication — set API_SECRET in .env / Railway
 const API_SECRET = process.env.API_SECRET;
@@ -25,6 +27,8 @@ let liveState = {
   mode: "paper",
   riskProfile: "moderate",
   botStartedAt: new Date().toISOString(),
+  ops: null,
+  costs: null,
 };
 
 function updateLiveState(updates) {
@@ -34,7 +38,21 @@ function updateLiveState(updates) {
 // ── Security middleware ──
 
 // Security headers (XSS, clickjacking, MIME sniffing protection)
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
 // Rate limiting — max 60 requests per minute per IP
 const limiter = rateLimit({
@@ -66,6 +84,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// Avoid caching API responses that may include account/trading state.
+app.use("/api/", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
+
 // ── Authentication middleware ──
 // All /api/* routes require a valid API key in the X-API-Key header
 function requireAuth(req, res, next) {
@@ -76,7 +101,9 @@ function requireAuth(req, res, next) {
   const key = req.headers["x-api-key"];
 
   if (!key || typeof key !== "string" || key.length !== API_SECRET.length) {
-    console.warn(`Auth failure from ${req.ip} — ${req.method} ${req.path}`);
+    if (process.env.LOG_AUTH_FAILURES === "true") {
+      console.warn(`Auth failure from ${req.ip} — ${req.method} ${req.path}`);
+    }
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -84,7 +111,9 @@ function requireAuth(req, res, next) {
   const keyBuf = Buffer.from(key);
   const secretBuf = Buffer.from(API_SECRET);
   if (!crypto.timingSafeEqual(keyBuf, secretBuf)) {
-    console.warn(`Auth failure from ${req.ip} — ${req.method} ${req.path}`);
+    if (process.env.LOG_AUTH_FAILURES === "true") {
+      console.warn(`Auth failure from ${req.ip} — ${req.method} ${req.path}`);
+    }
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -107,6 +136,7 @@ app.get("/api/status", (req, res) => {
   res.json({
     status: "running",
     mode: liveState.mode,
+    liveTradingEnabled: !!liveState.liveTradingEnabled,
     riskProfile: liveState.riskProfile,
     cycleCount: liveState.cycleCount,
     lastCycle: liveState.lastCycle,
@@ -166,6 +196,14 @@ app.get("/api/reviews", (req, res) => {
 app.get("/api/research", (req, res) => {
   const md = liveState.marketData || {};
   res.json(md.grokResearch || null);
+});
+
+app.get("/api/ops", (req, res) => {
+  res.json(liveState.ops || {});
+});
+
+app.get("/api/costs", (req, res) => {
+  res.json(liveState.costs || {});
 });
 
 // Catch-all error handler — never leak stack traces

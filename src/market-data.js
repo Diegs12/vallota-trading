@@ -7,26 +7,43 @@ const TOKENS = [
   "jupiter-exchange-solana", "ondo-finance", "ethena",
 ];
 
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchJsonWithRetry(url, name, retries = 2) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        lastErr = new Error(`${name} error: ${res.status}`);
+        if (res.status === 429 && attempt < retries) {
+          await delay(400 * attempt);
+          continue;
+        }
+        break;
+      }
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await delay(400 * attempt);
+    }
+  }
+  throw lastErr || new Error(`${name} fetch failed`);
+}
+
 async function getCoinGeckoData() {
   const ids = TOKENS.join(",");
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=false&price_change_percentage=1h,24h,7d`;
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko error: ${res.status}`);
-  return res.json();
+  return fetchJsonWithRetry(url, "CoinGecko");
 }
 
 async function getFearGreedIndex() {
-  const res = await fetch("https://api.alternative.me/fng/?limit=1");
-  if (!res.ok) throw new Error(`Fear & Greed error: ${res.status}`);
-  const data = await res.json();
+  const data = await fetchJsonWithRetry("https://api.alternative.me/fng/?limit=1", "Fear & Greed");
   return data.data[0]; // { value, value_classification, timestamp }
 }
 
 async function getDefiLlamaData() {
-  const res = await fetch("https://api.llama.fi/protocols");
-  if (!res.ok) throw new Error(`DefiLlama error: ${res.status}`);
-  const protocols = await res.json();
+  const protocols = await fetchJsonWithRetry("https://api.llama.fi/protocols", "DefiLlama");
 
   // Get top protocols by TVL
   const top = protocols
@@ -43,9 +60,10 @@ async function getDefiLlamaData() {
 }
 
 async function getDexScreenerTrending() {
-  const res = await fetch("https://api.dexscreener.com/token-boosts/latest/v1");
-  if (!res.ok) throw new Error(`DexScreener error: ${res.status}`);
-  const data = await res.json();
+  const data = await fetchJsonWithRetry(
+    "https://api.dexscreener.com/token-boosts/latest/v1",
+    "DexScreener"
+  );
   return Array.isArray(data) ? data.slice(0, 10) : [];
 }
 

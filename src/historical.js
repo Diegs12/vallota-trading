@@ -2,6 +2,8 @@
 // Provides multi-timeframe analysis: 5m (via minute), 1h, 4h, 1d
 
 const BASE_URL = "https://min-api.cryptocompare.com/data/v2";
+const CACHE_TTL_MS = parseInt(process.env.HISTORICAL_CACHE_TTL_MS || "900000", 10); // 15m
+const candleCache = new Map();
 
 // Core tokens we compute full TA for
 const CORE_TOKENS = ["BTC", "ETH", "SOL"];
@@ -14,30 +16,70 @@ const TIMEFRAMES = {
 };
 
 async function fetchCandles(symbol, endpoint, limit, aggregate) {
+  const cacheKey = `${symbol}:${endpoint}:${limit}:${aggregate}`;
+  const cached = candleCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const url = `${BASE_URL}/${endpoint}?fsym=${symbol}&tsym=USD&limit=${limit}&aggregate=${aggregate}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.warn(`CryptoCompare fetch failed for ${symbol} ${endpoint}: ${res.status}`);
-    return null;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        lastErr = new Error(`CryptoCompare status ${res.status}`);
+        if (res.status === 429 && attempt < 2) {
+          await delay(600 * attempt);
+          continue;
+        }
+        break;
+      }
+
+      const json = await res.json();
+      if (json.Response === "Error") {
+        lastErr = new Error(json.Message || "Unknown CryptoCompare error");
+        if ((json.Message || "").toLowerCase().includes("rate limit") && attempt < 2) {
+          await delay(600 * attempt);
+          continue;
+        }
+        break;
+      }
+
+      const raw = json.Data?.Data;
+      if (!raw || !Array.isArray(raw)) {
+        lastErr = new Error("Malformed candle response");
+        break;
+      }
+
+      const parsed = raw.map((k) => ({
+        time: k.time * 1000,
+        open: k.open,
+        high: k.high,
+        low: k.low,
+        close: k.close,
+        volume: k.volumefrom,
+      }));
+
+      candleCache.set(cacheKey, { fetchedAt: Date.now(), data: parsed });
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) await delay(600 * attempt);
+    }
   }
 
-  const json = await res.json();
-  if (json.Response === "Error") {
-    console.warn(`CryptoCompare error for ${symbol}: ${json.Message}`);
-    return null;
+  if (cached?.data) {
+    console.warn(
+      `CryptoCompare unavailable for ${symbol} ${endpoint}; using cached candles (${Math.round(
+        (Date.now() - cached.fetchedAt) / 1000
+      )}s old)`
+    );
+    return cached.data;
   }
 
-  const raw = json.Data?.Data;
-  if (!raw || !Array.isArray(raw)) return null;
-
-  return raw.map((k) => ({
-    time: k.time * 1000,
-    open: k.open,
-    high: k.high,
-    low: k.low,
-    close: k.close,
-    volume: k.volumefrom,
-  }));
+  console.warn(`CryptoCompare fetch failed for ${symbol} ${endpoint}: ${lastErr?.message || "unknown"}`);
+  return null;
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));

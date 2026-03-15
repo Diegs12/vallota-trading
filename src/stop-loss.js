@@ -58,7 +58,7 @@ function checkStopLoss(token, currentPrice, riskProfile = "moderate") {
     drawdownFromHigh: Math.round(drawdownFromHigh * 10000) / 100,
     threshold: threshold * 100,
     reason: triggered
-      ? `Stop-loss triggered: ${drawdownFromEntry > threshold ? "entry" : "trailing"} drawdown ${Math.max(drawdownFromEntry, drawdownFromHigh * 100).toFixed(2)}% > ${threshold * 100}%`
+      ? `Stop-loss triggered: ${drawdownFromEntry > threshold ? "entry" : "trailing"} drawdown ${(Math.max(drawdownFromEntry, drawdownFromHigh) * 100).toFixed(2)}% > ${threshold * 100}%`
       : null,
   };
 }
@@ -85,6 +85,23 @@ function getPositions() {
   return result;
 }
 
+function getNearestStopBufferPct(prices, riskProfile = "moderate") {
+  const threshold = STOP_LOSS_THRESHOLDS[riskProfile] || STOP_LOSS_THRESHOLDS.moderate;
+  let nearest = null;
+  for (const [token, pos] of positions) {
+    const p = prices?.[token];
+    if (!p || !pos.entryPrice || !pos.highWaterMark) continue;
+
+    const ddEntry = (pos.entryPrice - p) / pos.entryPrice;
+    const ddHigh = (pos.highWaterMark - p) / pos.highWaterMark;
+    const dd = Math.max(ddEntry, ddHigh);
+    const buffer = (threshold - dd) * 100; // remaining headroom before trigger
+
+    if (nearest == null || buffer < nearest) nearest = buffer;
+  }
+  return nearest;
+}
+
 module.exports = {
   recordEntry,
   updateHighWaterMark,
@@ -92,4 +109,5 @@ module.exports = {
   checkStopLoss,
   checkAllPositions,
   getPositions,
+  getNearestStopBufferPct,
 };

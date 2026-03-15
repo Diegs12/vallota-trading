@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node src/bot.js start",
     "test-data": "node src/bot.js test-data",
-    "stats": "node src/bot.js stats"
+    "stats": "node src/bot.js stats",
+    "security:scan-secrets": "./scripts-secret-scan.sh",
+    "live:on:conservative": "./go-live-conservative.sh",
+    "live:pause": "./pause-live-trading.sh"
   },
   "author": "Diego Vallota",
   "license": "ISC",
@@ -17,6 +20,8 @@
     "@supabase/supabase-js": "^2.98.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
     "resend": "^6.9.3"
   }
 }
