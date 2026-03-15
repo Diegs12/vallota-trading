@@ -3,7 +3,7 @@ require("dotenv").config();
 const { aggregateMarketData } = require("./market-data");
 const { getAllCoreTokenData } = require("./historical");
 const { computeAll } = require("./indicators");
-const { analyzeMarket } = require("./analyst");
+const { analyzeMarket, RISK_PROFILES } = require("./analyst");
 const { safeAnalyze } = require("./failsafe");
 const { getFullResearch } = require("./grok-research");
 const { getAllDerivativesData } = require("./derivatives");
@@ -17,23 +17,62 @@ const {
   clearPosition,
   checkAllPositions,
   getPositions,
+  getNearestStopBufferPct,
 } = require("./stop-loss");
 const { syncAll } = require("./knowledge-sync");
+const { shouldCallAI } = require("./decision-policy");
+const { addCostEvent, getCostSummary } = require("./cost-tracker");
 
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || "primary";
 
 // Choose real or paper wallet based on mode
 const PAPER_MODE = process.env.TRADING_MODE !== "live";
+const LIVE_TRADING_ENABLED = process.env.LIVE_TRADING_ENABLED === "true";
 const walletModule = PAPER_MODE
   ? require("./paper-wallet")
   : require("./wallet");
 const { getBalances, executeTrade, getWalletAddress } = walletModule;
 const paperWallet = PAPER_MODE ? walletModule : null;
 
-const INTERVAL = parseInt(process.env.ANALYSIS_INTERVAL_MS) || 120000;
+const INTERVAL = parseInt(process.env.ANALYSIS_INTERVAL_MS || "300000", 10); // default 5m
 const RISK_PROFILE = process.env.RISK_PROFILE || "moderate";
+const PER_TRADE_RISK_PCT = parseFloat(process.env.PER_TRADE_RISK_PCT || "5");
+const DAILY_MAX_DRAWDOWN_PCT = parseFloat(process.env.DAILY_MAX_DRAWDOWN_PCT || "15");
+const MIN_TRADE_USD = parseFloat(process.env.MIN_TRADE_USD || "10");
+const ESTIMATED_ROUND_TRIP_COST_BPS = parseFloat(process.env.ESTIMATED_ROUND_TRIP_COST_BPS || "30");
+const MIN_NET_EDGE_BPS = parseFloat(process.env.MIN_NET_EDGE_BPS || "5");
+const MIN_CONFIDENCE_WITHOUT_EDGE = parseInt(process.env.MIN_CONFIDENCE_WITHOUT_EDGE || "50", 10);
+const COST_CLAUDE_ANALYSIS_USD = parseFloat(process.env.COST_CLAUDE_ANALYSIS_USD || "0.012");
+const COST_CLAUDE_REVIEW_USD = parseFloat(process.env.COST_CLAUDE_REVIEW_USD || "0.015");
+const COST_GROK_RESEARCH_USD = parseFloat(process.env.COST_GROK_RESEARCH_USD || "0.00012");
+const COST_GROK_DERIVATIVES_USD = parseFloat(process.env.COST_GROK_DERIVATIVES_USD || "0.00012");
 
 let cycleCount = 0;
+let dayAnchor = null;
+let dayStartPortfolioUsd = null;
+let aiCallsMade = 0;
+let aiCallsSkipped = 0;
+
+function getUtcDayAnchor(ts = Date.now()) {
+  const d = new Date(ts);
+  return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+}
+
+function estimatePortfolioUsd(balances, priceMap) {
+  let total = 0;
+  for (const [token, amount] of Object.entries(balances || {})) {
+    const t = String(token).toLowerCase();
+    const a = Number(amount) || 0;
+    if (!a) continue;
+    if (t === "usdc" || t === "usd") {
+      total += a;
+      continue;
+    }
+    const px = Number(priceMap?.[t]) || 0;
+    total += a * px;
+  }
+  return total;
+}
 
 async function runCycle() {
   cycleCount++;
@@ -55,6 +94,12 @@ async function runCycle() {
       getAllDerivativesData(),
       getAllMacroData(),
     ]);
+    if (grokResearch?.sentiment || grokResearch?.regulatory) {
+      addCostEvent("grok_research", COST_GROK_RESEARCH_USD);
+    }
+    if (derivativesData) {
+      addCostEvent("grok_derivatives", COST_GROK_DERIVATIVES_USD);
+    }
 
     console.log(
       `Prices: ${marketData.prices?.length || 0} tokens`,
@@ -106,6 +151,7 @@ async function runCycle() {
       cycleCount,
       lastCycle: cycleStart.toISOString(),
       mode: PAPER_MODE ? "paper" : "live",
+      liveTradingEnabled: LIVE_TRADING_ENABLED,
       riskProfile: RISK_PROFILE,
     });
 
@@ -127,6 +173,7 @@ async function runCycle() {
       mode: PAPER_MODE ? "paper" : "live",
     };
 
+    let portfolioUsd = 0;
     if (paperWallet) {
       const pv = paperWallet.getPortfolioValue();
       console.log(
@@ -134,9 +181,31 @@ async function runCycle() {
       );
       portfolio.portfolioValue = pv;
       updateLiveState({ portfolio: pv });
+      portfolioUsd = pv.totalValue || 0;
     } else {
-      console.log("Balances:", JSON.stringify(balances, null, 2));
+      console.log("Balances: [redacted from logs — check dashboard]");
       updateLiveState({ portfolio: { balances } });
+      portfolioUsd = estimatePortfolioUsd(
+        balances,
+        Object.fromEntries((marketData.prices || []).map((t) => [t.symbol.toLowerCase(), t.current_price]))
+      );
+    }
+
+    // 4b. Daily drawdown kill-switch (prevents new risk after severe down day)
+    const nowAnchor = getUtcDayAnchor();
+    if (dayAnchor !== nowAnchor || dayStartPortfolioUsd == null) {
+      dayAnchor = nowAnchor;
+      dayStartPortfolioUsd = portfolioUsd || parseFloat(process.env.TRADING_CAPITAL_USD || "1000");
+    }
+    const dailyDrawdownPct =
+      dayStartPortfolioUsd > 0
+        ? ((dayStartPortfolioUsd - portfolioUsd) / dayStartPortfolioUsd) * 100
+        : 0;
+    const dailyRiskLocked = dailyDrawdownPct >= DAILY_MAX_DRAWDOWN_PCT;
+    if (dailyRiskLocked) {
+      console.warn(
+        `DAILY KILL-SWITCH ACTIVE: drawdown ${dailyDrawdownPct.toFixed(2)}% >= ${DAILY_MAX_DRAWDOWN_PCT}%`
+      );
     }
 
     // 5. Check stop-losses BEFORE asking Claude
@@ -176,14 +245,42 @@ async function runCycle() {
       console.log("Stop-loss sells complete.\n");
     }
 
-    // 6. Ask Claude for analysis (with failsafe)
-    console.log("Analyzing with Claude...");
-    const { decision, failsafe } = await safeAnalyze(
-      analyzeMarket,
+    // 6. Smart policy: only call Claude when state materially changed
+    const nearestStopBufferPct = getNearestStopBufferPct(currentPrices, RISK_PROFILE);
+    const aiCallPolicy = shouldCallAI({
       marketData,
-      portfolio,
-      RISK_PROFILE
-    );
+      timeframeSummary,
+      nearestStopBufferPct,
+    });
+
+    let decision;
+    let failsafe = false;
+    let aiMeta = { apiSuccess: false, attempts: 0 };
+    if (aiCallPolicy.call) {
+      console.log(`Analyzing with Claude... (${aiCallPolicy.reason})`);
+      const out = await safeAnalyze(analyzeMarket, marketData, portfolio, RISK_PROFILE);
+      decision = out.decision;
+      failsafe = out.failsafe;
+      aiMeta = out.meta || aiMeta;
+      aiCallsMade++;
+      if (aiMeta.apiSuccess) {
+        addCostEvent("claude_analysis", COST_CLAUDE_ANALYSIS_USD, { reason: aiCallPolicy.reason });
+      }
+    } else {
+      aiCallsSkipped++;
+      decision = {
+        action: "hold",
+        token: "usdc",
+        amount_usd: null,
+        confidence: 45,
+        reasoning: `SMART-SKIP: No material market change (${aiCallPolicy.reason})`,
+        market_summary: "State unchanged enough to skip LLM analysis this cycle",
+        risk_notes: "Capital preserved; force-analysis window still active.",
+        timeframe_alignment: "unchanged",
+        expected_edge_pct: 0,
+      };
+      console.log(`Skipping Claude call (${aiCallPolicy.reason})`);
+    }
 
     if (failsafe) {
       console.warn("*** Running in FAILSAFE mode ***");
@@ -192,9 +289,87 @@ async function runCycle() {
     // Update dashboard with latest decision
     updateLiveState({ lastDecision: decision });
 
-    // 7. Execute trade if not hold and confidence is high enough
-    const minConfidence = failsafe ? 0 : 60; // Always execute failsafe sells
+    // 7. Validate + execute trade if not hold and confidence is high enough
+    const minConfidence = failsafe ? 0 : 45; // Aggressive: lower bar to execute trades
     let executed = false;
+
+    // Validate decision fields before executing
+    const ALLOWED_ACTIONS = ["buy", "sell", "hold"];
+    const ALLOWED_TOKENS = ["eth", "usdc", "aero", "brett", "degen", "toshi", "well"];
+
+    const validAction = ALLOWED_ACTIONS.includes(decision.action);
+    const validToken = !decision.token || ALLOWED_TOKENS.includes(decision.token?.toLowerCase());
+    const validConfidence = typeof decision.confidence === "number" &&
+      decision.confidence >= 0 && decision.confidence <= 100 &&
+      Number.isFinite(decision.confidence);
+    const validAmount = decision.amount_usd === null ||
+      decision.amount_usd === undefined ||
+      (typeof decision.amount_usd === "number" &&
+        decision.amount_usd > 0 &&
+        Number.isFinite(decision.amount_usd) &&
+        decision.amount_usd <= parseFloat(process.env.TRADING_CAPITAL_USD || "1000"));
+
+    if (!validAction || !validToken || !validConfidence || !validAmount) {
+      console.warn("\n*** BLOCKED: Invalid trade parameters from AI ***");
+      if (!validAction) console.warn(`  Bad action: ${decision.action}`);
+      if (!validToken) console.warn(`  Bad token: ${decision.token}`);
+      if (!validConfidence) console.warn(`  Bad confidence: ${decision.confidence}`);
+      if (!validAmount) console.warn(`  Bad amount: ${decision.amount_usd}`);
+      decision.action = "hold";
+      decision.reasoning = "BLOCKED — invalid parameters: " + decision.reasoning;
+    }
+
+    // Risk cap by account size + profile ceiling
+    const profile = RISK_PROFILES[RISK_PROFILE] || RISK_PROFILES.moderate;
+    const riskCapUsd = (portfolioUsd * PER_TRADE_RISK_PCT) / 100;
+    const profileCapUsd = (portfolioUsd * profile.maxPositionPct) / 100;
+    const hardCapUsd = Math.max(0, Math.min(riskCapUsd, profileCapUsd));
+    if (
+      decision.action === "buy" &&
+      typeof decision.amount_usd === "number" &&
+      decision.amount_usd > hardCapUsd &&
+      hardCapUsd > 0
+    ) {
+      decision.risk_notes = `${decision.risk_notes || ""} | Clamped by risk cap to $${hardCapUsd.toFixed(2)}`;
+      decision.amount_usd = parseFloat(hardCapUsd.toFixed(2));
+    }
+
+    // Edge/cost filter: skip low-edge, low-notional churn.
+    if (decision.action !== "hold") {
+      const amount = Number(decision.amount_usd || 0);
+      if (amount > 0 && amount < MIN_TRADE_USD) {
+        decision.action = "hold";
+        decision.reasoning = `BLOCKED — trade below minimum notional ($${MIN_TRADE_USD})`;
+      } else {
+        const hasEdge = Number.isFinite(Number(decision.expected_edge_pct));
+        const estEdgeBps = hasEdge
+          ? Number(decision.expected_edge_pct) * 100
+          : Math.max(0, (Number(decision.confidence || 0) - 50) * 4);
+        const netEdgeBps = estEdgeBps - ESTIMATED_ROUND_TRIP_COST_BPS;
+        if (hasEdge) {
+          if (netEdgeBps < MIN_NET_EDGE_BPS) {
+            decision.action = "hold";
+            decision.reasoning = `BLOCKED — insufficient net edge (${netEdgeBps.toFixed(1)} bps after costs)`;
+          }
+        } else if ((decision.confidence || 0) < MIN_CONFIDENCE_WITHOUT_EDGE) {
+          decision.action = "hold";
+          decision.reasoning = `BLOCKED — confidence < ${MIN_CONFIDENCE_WITHOUT_EDGE} without explicit edge estimate`;
+        }
+      }
+    }
+
+    // Daily kill-switch blocks new buys, but still allows sells/risk reduction.
+    if (dailyRiskLocked && decision.action === "buy") {
+      decision.action = "hold";
+      decision.reasoning = `BLOCKED — daily drawdown lock active (${dailyDrawdownPct.toFixed(2)}%)`;
+    }
+
+    if (decision.action !== "hold" && decision.confidence >= minConfidence) {
+      if (!PAPER_MODE && !LIVE_TRADING_ENABLED) {
+        decision.action = "hold";
+        decision.reasoning = "BLOCKED — live trading guard is disabled (set LIVE_TRADING_ENABLED=true to execute)";
+      }
+    }
 
     if (decision.action !== "hold" && decision.confidence >= minConfidence) {
       console.log(
@@ -236,7 +411,8 @@ async function runCycle() {
     // 9. Self-review check
     if (shouldReview()) {
       console.log("\nRunning self-review...");
-      await reviewPastTrades(marketData);
+      const review = await reviewPastTrades(marketData);
+      if (review) addCostEvent("claude_review", COST_CLAUDE_REVIEW_USD);
     }
 
     // 10. Check if it's time to send a recap email
@@ -255,6 +431,25 @@ async function runCycle() {
     if (cycleCount % 10 === 0) {
       print24hSummary();
     }
+
+    // 13. Update operations + cost telemetry for dashboard
+    const pv = paperWallet ? paperWallet.getPortfolioValue() : null;
+    const costs = getCostSummary({
+      paperPnlUsd: pv?.pnl || 0,
+      startingCapitalUsd: pv?.startingCapital || parseFloat(process.env.TRADING_CAPITAL_USD || "1000"),
+    });
+    updateLiveState({
+      ops: {
+        aiCallsMade,
+        aiCallsSkipped,
+        lastAiDecisionPolicy: aiCallPolicy.reason,
+        lastAiApiSuccess: aiMeta.apiSuccess,
+        lastAiAttempts: aiMeta.attempts,
+        dailyDrawdownPct: Math.round(dailyDrawdownPct * 100) / 100,
+        dailyRiskLocked,
+      },
+      costs,
+    });
 
     const elapsed = Date.now() - cycleStart.getTime();
     console.log(`\nCycle #${cycleCount} complete in ${(elapsed / 1000).toFixed(1)}s`);
@@ -315,6 +510,11 @@ async function start() {
     console.log(
       "Running in PAPER MODE — no real trades will be executed.\n" +
       "Set TRADING_MODE=live in .env to switch to real trading.\n"
+    );
+  } else if (!LIVE_TRADING_ENABLED) {
+    console.warn(
+      "LIVE mode requested but LIVE_TRADING_ENABLED is false.\n" +
+      "Trades will be analyzed but NOT executed until you set LIVE_TRADING_ENABLED=true."
     );
   }
 

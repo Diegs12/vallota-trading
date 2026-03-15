@@ -2,6 +2,8 @@ const Anthropic = require("@anthropic-ai/sdk").default;
 const { getLatestLessons } = require("./self-review");
 
 const client = new Anthropic(); // uses ANTHROPIC_API_KEY env var
+const PRIMARY_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest";
+const FALLBACK_MODEL = process.env.ANTHROPIC_FALLBACK_MODEL || "claude-sonnet-4-20250514";
 
 const RISK_PROFILES = {
   conservative: {
@@ -28,10 +30,10 @@ function buildSystemPrompt(riskProfile) {
   const profile = RISK_PROFILES[riskProfile] || RISK_PROFILES.moderate;
   const lessons = getLatestLessons();
 
-  return `You are an expert crypto trading analyst for the Vallota Trading bot.
-You run on the Base L2 network via Coinbase. Your job is to analyze COMPUTED technical indicators and market data to make trading decisions.
+  return `You are an aggressive crypto trading analyst for the Vallota Trading bot.
+You run on the Base L2 network via Coinbase. Your job is to actively trade and generate as much data as possible for the learning system.
 
-IMPORTANT: The technical indicators (RSI, MACD, Bollinger Bands) have been computed programmatically with exact math. Trust these numbers — do NOT recalculate them. Your job is to INTERPRET them in context, not verify the arithmetic.
+IMPORTANT: The technical indicators (RSI, MACD, Bollinger Bands) have been computed programmatically with exact math. Trust these numbers -- do NOT recalculate them. Your job is to INTERPRET them in context, not verify the arithmetic.
 
 RISK PROFILE: ${riskProfile.toUpperCase()}
 - Max position size: ${profile.maxPositionPct}% of portfolio
@@ -41,25 +43,25 @@ RISK PROFILE: ${riskProfile.toUpperCase()}
 TRADABLE TOKENS ON BASE: ETH, USDC, AERO, BRETT, DEGEN, TOSHI, WELL
 (You can only recommend trades for tokens available on Base via Coinbase)
 
+TRADING PHILOSOPHY:
+This is a PAPER TRADING bot in data-collection mode. The primary goal is to TRADE ACTIVELY so we accumulate training data, learn market patterns, and refine our strategy through the self-review loop. Sitting in USDC generates zero learning.
+
 RULES:
 1. Always return valid JSON with your decision
-2. If uncertain, default to HOLD — preserving capital is priority #1
-3. Never go all-in on a single token
-4. Consider correlation between positions
-5. Factor in gas costs for small trades (may not be worth it)
-6. Idle USDC should be noted for potential Aave V3 deposit
-7. Pay attention to multi-timeframe alignment — a buy signal on 5m means nothing if the 4h and 1d are bearish
-8. RSI below 30 = oversold (potential buy), above 70 = overbought (potential sell)
-9. MACD histogram crossing zero is a trend change signal
-10. Bollinger %B below 0 = oversold, above 1 = overbought
-11. Grok social intelligence provides real-time X/Twitter sentiment — use it to confirm or contradict technical signals
-12. If Grok reports breaking news (regulatory, hacks, major announcements), weigh it heavily — news moves markets before indicators catch up
-13. If social sentiment strongly disagrees with technicals, reduce position size and confidence
-14. DERIVATIVES DATA is critical: extreme positive funding = longs overleveraged (fade them). Extreme negative = shorts overleveraged (squeeze incoming)
-15. If open interest is rising + price falling = liquidation cascade risk. Reduce exposure.
-16. Long/short ratio > 2.0 = contrarian sell. < 0.5 = contrarian buy.
-17. BTC dominance rising = altcoin weakness. Prefer BTC or USDC. BTC.D falling = alt season, look for alt entries.
-18. Stablecoin market cap rising = new money entering crypto (bullish). Falling = money leaving (bearish).
+2. BIAS TOWARD ACTION. If you see any signal -- even a modest one -- take a position. We learn more from a trade that loses 2% than from holding all day.
+3. Trade frequently. Look for short-term momentum plays, mean reversion, breakouts, and trend continuations. Even small edges are worth taking.
+4. Use the full range of tokens. Don't just trade ETH -- look at AERO, BRETT, DEGEN, TOSHI, WELL for higher volatility and more trading opportunities.
+5. Scale into and out of positions. Don't wait for the "perfect" entry -- take partial positions and add on confirmation.
+6. RSI below 35 = buy opportunity. RSI above 65 = sell opportunity. Don't wait for extremes.
+7. MACD histogram crossing zero or showing momentum shift = trade signal.
+8. Bollinger %B below 0.2 = buy zone, above 0.8 = sell zone.
+9. If even ONE timeframe shows a clear signal, consider acting on it. Don't require all timeframes to agree -- that's too conservative.
+10. Grok social intelligence: use it as a catalyst. Hot sentiment = momentum trade opportunity.
+11. DERIVATIVES: extreme funding rates = fade the crowd. This is a high-conviction signal -- act on it.
+12. When in doubt, take a SMALL position rather than holding. A $30-50 exploratory trade is always better than no trade.
+13. Set your confidence based on signal strength, but don't let moderate confidence stop you from trading. Confidence of 55+ is enough to act.
+14. Report expected_edge_pct honestly -- even 0.3% edge is worth capturing over many trades.
+15. Think like a quantitative trader: high frequency of small-edge trades compounds into significant alpha over time.
 
 ${lessons ? `\nSELF-IMPROVEMENT NOTES (from reviewing your past trades):\n${lessons}\n` : ""}
 
@@ -69,6 +71,7 @@ RESPONSE FORMAT (strict JSON):
   "token": "eth" | "usdc" | "aero" | etc,
   "amount_usd": number | null,
   "confidence": 0-100,
+  "expected_edge_pct": number,
   "reasoning": "brief explanation referencing specific indicators",
   "market_summary": "1-2 sentence market overview",
   "risk_notes": "any concerns",
@@ -118,12 +121,25 @@ ${JSON.stringify(marketData.grokResearch, null, 2)}` : ""}
 
 Based on ALL data — technicals, derivatives, macro, and social intelligence — what is your trading decision? Respond with JSON only.`;
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  let response;
+  let lastErr;
+  for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
+    try {
+      response = await client.messages.create({
+        model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Claude model ${model} failed: ${err.message}`);
+    }
+  }
+  if (!response) {
+    throw lastErr || new Error("No model could produce a decision");
+  }
 
   const text = response.content[0].text;
 
@@ -133,7 +149,27 @@ Based on ALL data — technicals, derivatives, macro, and social intelligence �
     throw new Error("Claude did not return valid JSON");
   }
 
-  const decision = JSON.parse(jsonMatch[0]);
+  let decision;
+  try {
+    decision = JSON.parse(jsonMatch[0]);
+  } catch (parseErr) {
+    throw new Error("Claude returned malformed JSON: " + parseErr.message);
+  }
+
+  // Validate required fields exist and have correct types
+  if (!decision || typeof decision !== "object") {
+    throw new Error("Claude returned non-object JSON");
+  }
+  if (!decision.action || typeof decision.action !== "string") {
+    throw new Error("Missing or invalid 'action' in AI response");
+  }
+  if (decision.confidence !== undefined && typeof decision.confidence !== "number") {
+    decision.confidence = parseInt(decision.confidence) || 0;
+  }
+  if (decision.expected_edge_pct !== undefined && typeof decision.expected_edge_pct !== "number") {
+    decision.expected_edge_pct = parseFloat(decision.expected_edge_pct) || 0;
+  }
+
   console.log("\nAI Decision:", JSON.stringify(decision, null, 2));
   return decision;
 }
