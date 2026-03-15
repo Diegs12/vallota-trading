@@ -142,6 +142,9 @@ app.get("/api/status", (req, res) => {
     lastCycle: liveState.lastCycle,
     botStartedAt: liveState.botStartedAt,
     lastUpdated: liveState.lastUpdated,
+    errors: liveState.errors || [],
+    warnings: liveState.warnings || [],
+    failsafeActive: liveState.failsafeActive || false,
   });
 });
 

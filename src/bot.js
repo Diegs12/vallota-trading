@@ -484,6 +484,22 @@ async function runCycle() {
       paperPnlUsd: pv?.pnl || 0,
       startingCapitalUsd: pv?.startingCapital || parseFloat(process.env.TRADING_CAPITAL_USD || "1000"),
     });
+    // Build error/warning list for dashboard
+    const errors = [];
+    const warnings = [];
+    if (!aiMeta.apiSuccess && (aiCallPolicy.call || forceAllCalls)) {
+      errors.push({ type: "claude_api", message: "Claude API call failed — check credits or API key", at: cycleStart.toISOString() });
+    }
+    if (failsafe) {
+      errors.push({ type: "failsafe", message: "FAILSAFE ACTIVE — Claude API unreachable, protecting capital", at: cycleStart.toISOString() });
+    }
+    if (!marketData.prices || marketData.prices.length === 0) {
+      warnings.push({ type: "market_data", message: "CoinGecko rate limited — using cached prices", at: cycleStart.toISOString() });
+    }
+    if (dailyRiskLocked) {
+      warnings.push({ type: "drawdown", message: `Daily drawdown lock active (${dailyDrawdownPct.toFixed(1)}%)`, at: cycleStart.toISOString() });
+    }
+
     updateLiveState({
       ops: {
         aiCallsMade,
@@ -495,6 +511,9 @@ async function runCycle() {
         dailyRiskLocked,
       },
       costs,
+      errors,
+      warnings,
+      failsafeActive: failsafe,
     });
 
     const elapsed = Date.now() - cycleStart.getTime();
@@ -502,6 +521,9 @@ async function runCycle() {
   } catch (err) {
     console.error("Cycle error:", err.message);
     console.error(err.stack);
+    updateLiveState({
+      errors: [{ type: "cycle_crash", message: err.message, at: new Date().toISOString() }],
+    });
   }
 }
 
