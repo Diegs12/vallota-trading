@@ -43,8 +43,8 @@ const MIN_TRADE_USD = parseFloat(process.env.MIN_TRADE_USD || "10");
 const ESTIMATED_ROUND_TRIP_COST_BPS = parseFloat(process.env.ESTIMATED_ROUND_TRIP_COST_BPS || "30");
 const MIN_NET_EDGE_BPS = parseFloat(process.env.MIN_NET_EDGE_BPS || "5");
 const MIN_CONFIDENCE_WITHOUT_EDGE = parseInt(process.env.MIN_CONFIDENCE_WITHOUT_EDGE || "50", 10);
-const COST_CLAUDE_ANALYSIS_USD = parseFloat(process.env.COST_CLAUDE_ANALYSIS_USD || "0.012");
-const COST_CLAUDE_REVIEW_USD = parseFloat(process.env.COST_CLAUDE_REVIEW_USD || "0.015");
+const COST_CLAUDE_ANALYSIS_USD = parseFloat(process.env.COST_CLAUDE_ANALYSIS_USD || "0.005");
+const COST_CLAUDE_REVIEW_USD = parseFloat(process.env.COST_CLAUDE_REVIEW_USD || "0.006");
 const COST_GROK_RESEARCH_USD = parseFloat(process.env.COST_GROK_RESEARCH_USD || "0.00012");
 const COST_GROK_DERIVATIVES_USD = parseFloat(process.env.COST_GROK_DERIVATIVES_USD || "0.00012");
 
@@ -266,10 +266,9 @@ async function runCycle() {
     let decision;
     let failsafe = false;
     let aiMeta = { apiSuccess: false, attempts: 0 };
-    // In aggressive/data-collection mode, always call Claude. Skip logic only for conservative.
-    const forceAllCalls = RISK_PROFILE === "aggressive";
-    if (aiCallPolicy.call || forceAllCalls) {
-      const reason = aiCallPolicy.call ? aiCallPolicy.reason : "aggressive_mode";
+    // Smart-skip saves money: only call Claude when market changes or on interval
+    if (aiCallPolicy.call) {
+      const reason = aiCallPolicy.reason;
       console.log(`Analyzing with Claude... (${reason})`);
       const out = await safeAnalyze(analyzeMarket, marketData, portfolio, RISK_PROFILE);
       decision = out.decision;
