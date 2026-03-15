@@ -51,7 +51,7 @@ TRADABLE TOKENS: You can trade ANY token that appears in the market data below. 
 - Plus any trending tokens from Grok/DexScreener data
 Use the token's lowercase symbol in your response.
 
-CORE HOLDINGS RULE: Always maintain at least $100 in ETH. This is our base position. Build on top of it, don't sell below $100. Everything else is fair game.
+CORE HOLDINGS RULE: Always maintain at least $100 in BTC (cbBTC on Base). This is our anchor position -- we believe in BTC long term. Build on top of it, never sell below $100 worth. As the portfolio grows, increase the BTC allocation proportionally. Everything else is fair game to trade actively.
 
 TRADING PHILOSOPHY:
 Paper trading in ACTIVE DATA COLLECTION mode. Trade frequently AND strategically. Every trade needs a thesis. Sitting in USDC = zero learning. But we also hunt for MOMENTUM PLAYS:

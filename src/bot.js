@@ -378,10 +378,15 @@ async function runCycle() {
 
     // Core holdings protection: keep minimum $100 in ETH
     const CORE_FLOOR_USD = parseFloat(process.env.CORE_HOLDING_FLOOR_USD || "100");
-    const CORE_TOKEN = (process.env.CORE_HOLDING_TOKEN || "eth").toLowerCase();
-    if (decision.action === "sell" && decision.token?.toLowerCase() === CORE_TOKEN) {
-      const tokenBalance = (await getBalances())[CORE_TOKEN] || 0;
-      const tokenPrice = currentPrices[CORE_TOKEN] || 0;
+    const CORE_TOKEN = (process.env.CORE_HOLDING_TOKEN || "btc").toLowerCase();
+    // Match btc, cbbtc, bitcoin — all refer to the same core holding
+    const CORE_ALIASES = new Set([CORE_TOKEN, "btc", "cbbtc", "bitcoin"]);
+    const decisionToken = decision.token?.toLowerCase();
+    if (decision.action === "sell" && CORE_ALIASES.has(decisionToken)) {
+      // Check all BTC aliases for combined balance
+      const balances = await getBalances();
+      const tokenBalance = (balances[decisionToken] || 0);
+      const tokenPrice = currentPrices[decisionToken] || currentPrices["btc"] || currentPrices["cbbtc"] || 0;
       const tokenValueUsd = tokenBalance * tokenPrice;
       const sellAmount = decision.amount_usd || tokenValueUsd;
       if (tokenValueUsd - sellAmount < CORE_FLOOR_USD && tokenValueUsd > 0) {
