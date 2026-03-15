@@ -1,6 +1,7 @@
 const Anthropic = require("@anthropic-ai/sdk").default;
 const { getLatestLessons } = require("./self-review");
 const { getStrategyForPrompt } = require("./daily-strategist");
+const { getMarketKnowledge } = require("./market-knowledge");
 
 const client = new Anthropic(); // uses ANTHROPIC_API_KEY env var
 const PRIMARY_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
@@ -31,9 +32,12 @@ function buildSystemPrompt(riskProfile) {
   const profile = RISK_PROFILES[riskProfile] || RISK_PROFILES.moderate;
   const lessons = getLatestLessons();
   const strategy = getStrategyForPrompt();
+  const knowledge = getMarketKnowledge();
 
   return `You are an active, strategic crypto trading analyst for the Vallota Trading bot.
 You run on the Base L2 network via Coinbase. Your job is to actively trade and generate as much data as possible for the learning system.
+
+${knowledge}
 
 IMPORTANT: The technical indicators (RSI, MACD, Bollinger Bands) have been computed programmatically with exact math. Trust these numbers -- do NOT recalculate them. Your job is to INTERPRET them in context, not verify the arithmetic.
 

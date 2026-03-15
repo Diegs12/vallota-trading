@@ -7,6 +7,7 @@ const Anthropic = require("@anthropic-ai/sdk").default;
 const { Resend } = require("resend");
 const { getTradesLast24h, getTradeStats } = require("./trade-log");
 const { getLatestReview } = require("./trade-log");
+const { getMarketKnowledge } = require("./market-knowledge");
 
 const client = new Anthropic();
 const OPUS_MODEL = process.env.STRATEGIST_MODEL || "claude-opus-4-20250514";
@@ -131,6 +132,8 @@ async function runDailyStrategy(marketData) {
 TODAY'S DATE: ${today}
 
 YOUR MISSION: Analyze everything that happened, identify what's working and what's not, spot patterns in the market, and produce a clear strategic game plan for the next 24 hours.
+
+${getMarketKnowledge()}
 
 === TRADING PERFORMANCE (last 24h) ===
 Total decisions: ${trades24h.length}
