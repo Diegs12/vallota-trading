@@ -17,6 +17,10 @@ const TOKENS = [
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Cache CoinGecko data to avoid rate limits (free tier: ~10 calls/min)
+let cgCache = { data: null, fetchedAt: 0 };
+const CG_CACHE_TTL = 120000; // 2 minutes
+
 async function fetchJsonWithRetry(url, name, retries = 2) {
   let lastErr = null;
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -40,9 +44,14 @@ async function fetchJsonWithRetry(url, name, retries = 2) {
 }
 
 async function getCoinGeckoData() {
+  if (cgCache.data && Date.now() - cgCache.fetchedAt < CG_CACHE_TTL) {
+    return cgCache.data;
+  }
   const ids = TOKENS.join(",");
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=false&price_change_percentage=1h,24h,7d`;
-  return fetchJsonWithRetry(url, "CoinGecko");
+  const data = await fetchJsonWithRetry(url, "CoinGecko");
+  cgCache = { data, fetchedAt: Date.now() };
+  return data;
 }
 
 async function getFearGreedIndex() {
