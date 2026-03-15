@@ -114,22 +114,60 @@ Respond with JSON:
 }`);
 }
 
+async function getTrendingMemeCoins() {
+  return queryGrok(`Scan X/Twitter right now for trending meme coins and low-cap tokens that are surging or about to pump.
+
+Look for:
+1. Tokens people are hyping on crypto Twitter RIGHT NOW
+2. Any coins that just got listed on major exchanges
+3. Tokens with sudden volume spikes being discussed
+4. Any "next 100x" narratives forming
+5. Base L2 tokens specifically getting attention
+6. Tokens showing classic pump patterns (rapid price increase + social volume spike)
+
+For each token, estimate:
+- How far into the pump cycle it is (early, middle, late)
+- Approximate time window before likely dump (hours)
+- Risk level
+
+Respond with JSON:
+{
+  "hot_tokens": [
+    {
+      "symbol": "TOKEN",
+      "name": "Token Name",
+      "chain": "base/ethereum/solana/etc",
+      "pump_stage": "early" | "middle" | "late",
+      "estimated_pump_window_hours": number,
+      "social_volume": "low" | "medium" | "high" | "viral",
+      "risk_level": "medium" | "high" | "extreme",
+      "catalyst": "why it's pumping",
+      "action_suggestion": "buy now / wait for dip / too late"
+    }
+  ],
+  "base_ecosystem_buzz": "what's trending on Base L2 specifically",
+  "meme_season_indicator": "is it meme season? scale 1-10",
+  "pump_dump_alerts": ["any tokens showing dump signals right now"]
+}`);
+}
+
 async function getFullResearch() {
   console.log("Grok: Fetching real-time crypto intelligence...");
 
   const results = await Promise.allSettled([
     getCryptoSentiment(),
     getRegulatoryScan(),
+    getTrendingMemeCoins(),
   ]);
 
-  const [sentiment, regulatory] = results.map((r) =>
+  const [sentiment, regulatory, trending] = results.map((r) =>
     r.status === "fulfilled" ? r.value : null
   );
 
   // Log any failures
   results.forEach((r, i) => {
     if (r.status === "rejected") {
-      const names = ["sentiment", "regulatory"];
+      const names = ["sentiment", "regulatory", "trending"];
       console.warn(`Grok ${names[i]} research failed:`, r.reason?.message);
     }
   });
@@ -138,6 +176,7 @@ async function getFullResearch() {
     timestamp: new Date().toISOString(),
     sentiment,
     regulatory,
+    trending,
   };
 
   if (sentiment) {
@@ -146,6 +185,13 @@ async function getFullResearch() {
       sentiment.breaking_news?.length
         ? `| Breaking: ${sentiment.breaking_news[0]}`
         : ""
+    );
+  }
+
+  if (trending?.hot_tokens?.length) {
+    console.log(`Grok: ${trending.hot_tokens.length} trending tokens detected | Meme season: ${trending.meme_season_indicator || "?"}/10`);
+    trending.hot_tokens.slice(0, 3).forEach((t) =>
+      console.log(`  ${t.symbol}: ${t.pump_stage} stage, ${t.social_volume} volume — ${t.catalyst}`)
     );
   }
 

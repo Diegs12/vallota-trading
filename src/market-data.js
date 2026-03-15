@@ -1,10 +1,18 @@
 // Fetches market data from free APIs every analysis cycle
 
 const TOKENS = [
+  // Majors
   "bitcoin", "ethereum", "solana", "chainlink", "uniswap",
   "aave", "render-token", "arbitrum", "optimism", "polygon-ecosystem-token",
-  "pepe", "bonk", "sui", "aptos", "celestia",
-  "jupiter-exchange-solana", "ondo-finance", "ethena",
+  // Base L2 ecosystem
+  "aerodrome-finance", "brett", "degen-base", "toshi", "moonwell",
+  "virtual-protocol", "morpho", "extra-finance", "coinbase-wrapped-btc",
+  // Meme / momentum plays
+  "pepe", "bonk", "dogwifcoin", "floki", "shiba-inu",
+  // L1/L2 movers
+  "sui", "aptos", "celestia", "sei-network", "injective-protocol",
+  // DeFi / narrative plays
+  "jupiter-exchange-solana", "ondo-finance", "ethena", "pendle", "eigenlayer",
 ];
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -60,11 +68,24 @@ async function getDefiLlamaData() {
 }
 
 async function getDexScreenerTrending() {
-  const data = await fetchJsonWithRetry(
-    "https://api.dexscreener.com/token-boosts/latest/v1",
-    "DexScreener"
-  );
-  return Array.isArray(data) ? data.slice(0, 10) : [];
+  const [boosts, baseTop] = await Promise.allSettled([
+    fetchJsonWithRetry("https://api.dexscreener.com/token-boosts/latest/v1", "DexScreener boosts"),
+    fetchJsonWithRetry("https://api.dexscreener.com/token-boosts/top/v1", "DexScreener top"),
+  ]);
+
+  const boostData = boosts.status === "fulfilled" && Array.isArray(boosts.value) ? boosts.value : [];
+  const topData = baseTop.status === "fulfilled" && Array.isArray(baseTop.value) ? baseTop.value : [];
+
+  // Merge and tag Base chain tokens
+  const all = [...boostData, ...topData];
+  const baseTokens = all.filter((t) => t.chainId === "base");
+  const otherHot = all.filter((t) => t.chainId !== "base").slice(0, 5);
+
+  return {
+    baseTrending: baseTokens.slice(0, 15),
+    otherTrending: otherHot,
+    all: all.slice(0, 20),
+  };
 }
 
 async function aggregateMarketData() {

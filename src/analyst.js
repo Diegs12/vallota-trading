@@ -42,28 +42,46 @@ RISK PROFILE: ${riskProfile.toUpperCase()}
 - Max acceptable drawdown: ${profile.maxDrawdownPct}%
 - ${profile.description}
 
-TRADABLE TOKENS ON BASE: ETH, USDC, AERO, BRETT, DEGEN, TOSHI, WELL
-(You can only recommend trades for tokens available on Base via Coinbase)
+TRADABLE TOKENS: You can trade ANY token that appears in the market data below. The full universe includes:
+- Core: ETH, BTC (via cbBTC)
+- Base L2: AERO, BRETT, DEGEN, TOSHI, WELL, VIRTUAL, MORPHO
+- Meme/momentum: PEPE, BONK, WIF, FLOKI, SHIB
+- L1/L2: SOL, SUI, APT, TIA, SEI, INJ, ARB, OP
+- DeFi: LINK, UNI, AAVE, RNDR, JUP, ONDO, ENA, PENDLE
+- Plus any trending tokens from Grok/DexScreener data
+Use the token's lowercase symbol in your response.
+
+CORE HOLDINGS RULE: Always maintain at least $100 in ETH. This is our base position. Build on top of it, don't sell below $100. Everything else is fair game.
 
 TRADING PHILOSOPHY:
-This is a paper trading bot in ACTIVE DATA COLLECTION mode. We need to trade frequently AND strategically to build a dataset of trades, learn what works, and improve through the self-review loop. Sitting in USDC generates zero learning. But random trades are wasteful too -- every trade should have a clear thesis.
+Paper trading in ACTIVE DATA COLLECTION mode. Trade frequently AND strategically. Every trade needs a thesis. Sitting in USDC = zero learning. But we also hunt for MOMENTUM PLAYS:
+
+MEME COIN / PUMP STRATEGY:
+- When Grok reports a token surging on social media, consider a quick momentum play
+- Pump timing: most social-driven pumps last 2-8 hours. Get in early, set a mental exit
+- Position size for meme plays: $20-75 max (small bets, high frequency)
+- If Grok says "early stage" pump, that's a buy signal. "Late stage" = stay away or short
+- DexScreener trending tokens on Base = immediate attention. Check the data and consider entry
+- Take profits fast on meme plays. 5-10% gain = sell. Don't get greedy on pump plays
+- If a meme coin dumps 5%+ from your entry, cut it immediately. No bag-holding memes
 
 RULES:
 1. Always return valid JSON with your decision
-2. BIAS TOWARD ACTION with a CLEAR THESIS. Every trade should have a reason: momentum, mean reversion, breakout, sentiment catalyst, derivatives signal, or Opus strategy alignment.
-3. Trade frequently but strategically. Look for short-term plays with identifiable edges. If you see a setup, take it.
-4. Use the full range of tokens. Don't just trade ETH -- AERO, BRETT, DEGEN, TOSHI, WELL offer higher volatility and more pattern diversity.
-5. Scale into positions. Take a starter position on initial signal, add if it confirms.
-6. RSI below 35 = buy zone. RSI above 65 = sell zone. Don't wait for extremes at 30/70.
+2. BIAS TOWARD ACTION with a CLEAR THESIS. Every trade should have a reason: momentum, mean reversion, breakout, sentiment catalyst, pump play, derivatives signal, or Opus strategy alignment.
+3. Trade frequently and diversely. Mix stable plays (ETH, SOL) with high-vol plays (BRETT, DEGEN, PEPE). Different tokens teach different patterns.
+4. Use the FULL token universe. Don't just trade ETH. Meme coins and small caps generate the most interesting data.
+5. Scale into positions. Starter position on signal, add on confirmation.
+6. RSI below 35 = buy zone. RSI above 65 = sell zone. Don't wait for extremes.
 7. MACD histogram crossing zero or showing momentum shift = trade signal.
 8. Bollinger %B below 0.2 = buy zone, above 0.8 = sell zone.
-9. If one timeframe shows a strong signal, that's enough to act. Don't require all timeframes to align.
-10. Grok social intelligence: news and sentiment are catalysts. Act on them before they're priced in.
+9. One strong timeframe signal is enough to act. Don't require all to align.
+10. Grok social intelligence: trending tokens and sentiment spikes are ACTIONABLE. If Grok reports a token going viral, consider a momentum entry immediately.
 11. DERIVATIVES: extreme funding rates = fade the crowd. High-conviction contrarian signal.
-12. When in doubt between hold and a small position, take the small position ($20-50). We learn more from trading than sitting.
-13. Confidence of 50+ is enough to trade. Set expected_edge_pct honestly -- even 0.3% is worth capturing.
-14. FOLLOW THE DAILY STRATEGY from Opus (below) -- it sets the regime, bias, and game plan. Your job is to execute that strategy on the real-time signals.
-15. Always explain your thesis in the reasoning field. "Buying because RSI is low" is not enough -- say WHY this particular entry makes sense given the regime, strategy, and data.
+12. When in doubt between hold and a small position, take the small position ($20-50).
+13. Confidence of 50+ is enough to trade. Even 0.3% expected edge is worth capturing.
+14. FOLLOW THE DAILY STRATEGY from Opus (below) -- it sets regime, bias, and game plan.
+15. Always explain your thesis clearly. What's the setup, why now, what's the exit plan?
+16. DIVERSIFY across tokens. Don't put everything in one coin. Spread bets to maximize learning.
 
 ${strategy ? `\n${strategy}\n` : ""}
 ${lessons ? `\nSELF-IMPROVEMENT NOTES (from reviewing your past trades):\n${lessons}\n` : ""}
@@ -98,17 +116,21 @@ ${JSON.stringify(marketData.timeframeSummary || {}, null, 2)}
 
 MARKET DATA:
 - Fear & Greed Index: ${marketData.fearGreed?.value || "N/A"} (${marketData.fearGreed?.value_classification || "N/A"})
-- Top tokens by market cap: ${JSON.stringify(
-    (marketData.prices || []).slice(0, 10).map((t) => ({
+- All tracked tokens: ${JSON.stringify(
+    (marketData.prices || []).map((t) => ({
       symbol: t.symbol,
       price: t.current_price,
       change_24h: t.price_change_percentage_24h,
+      change_1h: t.price_change_percentage_1h_in_currency,
       volume: t.total_volume,
       mktCap: t.market_cap,
     })),
     null,
     2
   )}
+
+${marketData.trending ? `DEXSCREENER TRENDING (hot tokens right now):
+${JSON.stringify(marketData.trending, null, 2)}` : ""}
 
 DEFI TVL (top protocols):
 ${JSON.stringify(marketData.defiTvl || [], null, 2)}
@@ -122,7 +144,7 @@ ${JSON.stringify(marketData.macro, null, 2)}` : ""}
 ${marketData.grokResearch ? `REAL-TIME SOCIAL INTELLIGENCE (from Grok/X):
 ${JSON.stringify(marketData.grokResearch, null, 2)}` : ""}
 
-Based on ALL data — technicals, derivatives, macro, and social intelligence — what is your trading decision? Respond with JSON only.`;
+Based on ALL data — technicals, derivatives, macro, social intelligence, AND trending tokens — what is your trading decision? Remember: we want to be in the market, trading actively across many tokens. If a meme coin or trending token looks hot, go for it with a small position. Respond with JSON only.`;
 
   let response;
   let lastErr;

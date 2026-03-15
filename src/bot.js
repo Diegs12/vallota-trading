@@ -305,10 +305,18 @@ async function runCycle() {
 
     // Validate decision fields before executing
     const ALLOWED_ACTIONS = ["buy", "sell", "hold"];
-    const ALLOWED_TOKENS = ["eth", "usdc", "aero", "brett", "degen", "toshi", "well"];
+    // Dynamic token list: any token with price data is tradable
+    const knownTokens = new Set(
+      (marketData.prices || []).map((t) => t.symbol?.toLowerCase()).filter(Boolean)
+    );
+    // Always allow core Base L2 tokens
+    ["eth", "usdc", "aero", "brett", "degen", "toshi", "well", "virtual", "morpho", "cbbtc",
+     "pepe", "bonk", "wif", "floki", "shib", "sui", "apt", "tia", "sei", "inj",
+     "link", "uni", "aave", "rndr", "arb", "op", "pol", "jup", "ondo", "ena", "pendle"
+    ].forEach((t) => knownTokens.add(t));
 
     const validAction = ALLOWED_ACTIONS.includes(decision.action);
-    const validToken = !decision.token || ALLOWED_TOKENS.includes(decision.token?.toLowerCase());
+    const validToken = !decision.token || knownTokens.has(decision.token?.toLowerCase());
     const validConfidence = typeof decision.confidence === "number" &&
       decision.confidence >= 0 && decision.confidence <= 100 &&
       Number.isFinite(decision.confidence);
@@ -317,7 +325,7 @@ async function runCycle() {
       (typeof decision.amount_usd === "number" &&
         decision.amount_usd > 0 &&
         Number.isFinite(decision.amount_usd) &&
-        decision.amount_usd <= parseFloat(process.env.TRADING_CAPITAL_USD || "1000"));
+        decision.amount_usd <= portfolioUsd * 0.5); // max 50% of portfolio per trade
 
     if (!validAction || !validToken || !validConfidence || !validAmount) {
       console.warn("\n*** BLOCKED: Invalid trade parameters from AI ***");
@@ -364,6 +372,26 @@ async function runCycle() {
         } else if ((decision.confidence || 0) < MIN_CONFIDENCE_WITHOUT_EDGE) {
           decision.action = "hold";
           decision.reasoning = `BLOCKED — confidence < ${MIN_CONFIDENCE_WITHOUT_EDGE} without explicit edge estimate`;
+        }
+      }
+    }
+
+    // Core holdings protection: keep minimum $100 in ETH
+    const CORE_FLOOR_USD = parseFloat(process.env.CORE_HOLDING_FLOOR_USD || "100");
+    const CORE_TOKEN = (process.env.CORE_HOLDING_TOKEN || "eth").toLowerCase();
+    if (decision.action === "sell" && decision.token?.toLowerCase() === CORE_TOKEN) {
+      const tokenBalance = (await getBalances())[CORE_TOKEN] || 0;
+      const tokenPrice = currentPrices[CORE_TOKEN] || 0;
+      const tokenValueUsd = tokenBalance * tokenPrice;
+      const sellAmount = decision.amount_usd || tokenValueUsd;
+      if (tokenValueUsd - sellAmount < CORE_FLOOR_USD && tokenValueUsd > 0) {
+        const maxSellable = Math.max(0, tokenValueUsd - CORE_FLOOR_USD);
+        if (maxSellable < MIN_TRADE_USD) {
+          decision.action = "hold";
+          decision.reasoning = `BLOCKED — would breach $${CORE_FLOOR_USD} core ${CORE_TOKEN.toUpperCase()} floor`;
+        } else {
+          decision.amount_usd = parseFloat(maxSellable.toFixed(2));
+          decision.risk_notes = `${decision.risk_notes || ""} | Clamped to protect $${CORE_FLOOR_USD} ${CORE_TOKEN.toUpperCase()} floor`;
         }
       }
     }
