@@ -144,7 +144,13 @@ ${JSON.stringify(marketData.macro, null, 2)}` : ""}
 ${marketData.grokResearch ? `REAL-TIME SOCIAL INTELLIGENCE (from Grok/X):
 ${JSON.stringify(marketData.grokResearch, null, 2)}` : ""}
 
-Based on ALL data — technicals, derivatives, macro, social intelligence, AND trending tokens — what is your trading decision? Remember: we want to be in the market, trading actively across many tokens. If a meme coin or trending token looks hot, go for it with a small position. Respond with JSON only.`;
+Based on ALL data — technicals, derivatives, macro, social intelligence, AND trending tokens — what is your trading decision?
+
+CRITICAL REMINDER: This is PAPER TRADING for data collection. We are NOT risking real money. Holding USDC teaches us NOTHING. Every cycle you say "hold" is a wasted learning opportunity. Even in uncertain markets, take a position — that's how we learn what works. Fear and uncertainty are themselves signals to trade on (contrarian buys in extreme fear often work). If the portfolio is mostly cash, you MUST deploy some of it. Start with BTC as our core position, then diversify into whatever looks most interesting.
+
+DO NOT respond with "hold" unless you have already deployed at least 50% of the portfolio. If we are sitting in cash, BUY SOMETHING.
+
+Respond with JSON only.`;
 
   let response;
   let lastErr;

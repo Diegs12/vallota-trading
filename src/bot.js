@@ -266,15 +266,18 @@ async function runCycle() {
     let decision;
     let failsafe = false;
     let aiMeta = { apiSuccess: false, attempts: 0 };
-    if (aiCallPolicy.call) {
-      console.log(`Analyzing with Claude... (${aiCallPolicy.reason})`);
+    // In aggressive/data-collection mode, always call Claude. Skip logic only for conservative.
+    const forceAllCalls = RISK_PROFILE === "aggressive";
+    if (aiCallPolicy.call || forceAllCalls) {
+      const reason = aiCallPolicy.call ? aiCallPolicy.reason : "aggressive_mode";
+      console.log(`Analyzing with Claude... (${reason})`);
       const out = await safeAnalyze(analyzeMarket, marketData, portfolio, RISK_PROFILE);
       decision = out.decision;
       failsafe = out.failsafe;
       aiMeta = out.meta || aiMeta;
       aiCallsMade++;
       if (aiMeta.apiSuccess) {
-        addCostEvent("claude_analysis", COST_CLAUDE_ANALYSIS_USD, { reason: aiCallPolicy.reason });
+        addCostEvent("claude_analysis", COST_CLAUDE_ANALYSIS_USD, { reason });
       }
     } else {
       aiCallsSkipped++;
