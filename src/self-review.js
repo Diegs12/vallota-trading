@@ -8,14 +8,17 @@ const { getSharedLessons } = require("./knowledge-sync");
 
 const client = new Anthropic();
 
-const REVIEW_INTERVAL_CYCLES = 30; // Review every 30 cycles (~1 hour at 2min intervals)
-
-let cyclesSinceReview = 0;
+const REVIEW_INTERVAL_MINUTES = parseInt(process.env.REVIEW_INTERVAL_MINUTES || "30", 10);
+let lastReviewAtMs = 0;
 
 function shouldReview() {
-  cyclesSinceReview++;
-  if (cyclesSinceReview >= REVIEW_INTERVAL_CYCLES) {
-    cyclesSinceReview = 0;
+  const now = Date.now();
+  if (!lastReviewAtMs) {
+    lastReviewAtMs = now;
+    return false;
+  }
+  if (now - lastReviewAtMs >= REVIEW_INTERVAL_MINUTES * 60 * 1000) {
+    lastReviewAtMs = now;
     return true;
   }
   return false;
@@ -78,7 +81,7 @@ Respond with JSON:
 
   try {
     const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: process.env.ANTHROPIC_REVIEW_MODEL || process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest",
       max_tokens: 1500,
       messages: [{ role: "user", content: prompt }],
     });

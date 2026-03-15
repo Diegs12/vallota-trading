@@ -22,6 +22,7 @@ const {
 const { syncAll } = require("./knowledge-sync");
 const { shouldCallAI } = require("./decision-policy");
 const { addCostEvent, getCostSummary } = require("./cost-tracker");
+const { shouldRunStrategy, runDailyStrategy } = require("./daily-strategist");
 
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || "primary";
 
@@ -142,6 +143,15 @@ async function runCycle() {
     marketData.grokResearch = grokResearch;
     marketData.derivatives = derivativesData;
     marketData.macro = macroData;
+
+    // Run daily Opus strategist (once per UTC day)
+    if (shouldRunStrategy()) {
+      const strategyResult = await runDailyStrategy(marketData);
+      if (strategyResult) {
+        addCostEvent("opus_strategist", strategyResult.costUsd, { type: "daily_strategy" });
+        console.log("Daily Opus strategy set.");
+      }
+    }
 
     // Update dashboard
     updateLiveState({
