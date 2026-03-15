@@ -81,7 +81,7 @@ Respond with JSON:
 
   try {
     const response = await client.messages.create({
-      model: process.env.ANTHROPIC_REVIEW_MODEL || process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest",
+      model: process.env.ANTHROPIC_REVIEW_MODEL || process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001",
       max_tokens: 1500,
       messages: [{ role: "user", content: prompt }],
     });

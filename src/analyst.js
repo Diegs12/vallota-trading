@@ -3,8 +3,8 @@ const { getLatestLessons } = require("./self-review");
 const { getStrategyForPrompt } = require("./daily-strategist");
 
 const client = new Anthropic(); // uses ANTHROPIC_API_KEY env var
-const PRIMARY_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest";
-const FALLBACK_MODEL = process.env.ANTHROPIC_FALLBACK_MODEL || "claude-sonnet-4-20250514";
+const PRIMARY_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+const FALLBACK_MODEL = process.env.ANTHROPIC_FALLBACK_MODEL || "claude-sonnet-4-6-20250514";
 
 const RISK_PROFILES = {
   conservative: {
