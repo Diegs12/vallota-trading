@@ -23,6 +23,7 @@ const { syncAll } = require("./knowledge-sync");
 const { shouldCallAI } = require("./decision-policy");
 const { addCostEvent, getCostSummary } = require("./cost-tracker");
 const { shouldRunStrategy, runDailyStrategy } = require("./daily-strategist");
+const { evaluateRules } = require("./rule-engine");
 
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || "primary";
 
@@ -280,18 +281,54 @@ async function runCycle() {
       }
     } else {
       aiCallsSkipped++;
-      decision = {
-        action: "hold",
-        token: "usdc",
-        amount_usd: null,
-        confidence: 45,
-        reasoning: `SMART-SKIP: No material market change (${aiCallPolicy.reason})`,
-        market_summary: "State unchanged enough to skip LLM analysis this cycle",
-        risk_notes: "Capital preserved; force-analysis window still active.",
-        timeframe_alignment: "unchanged",
-        expected_edge_pct: 0,
-      };
-      console.log(`Skipping Claude call (${aiCallPolicy.reason})`);
+
+      // Rule-based trading: use computed indicators to trade without API call
+      const ruleTrades = evaluateRules({
+        timeframeSummary,
+        marketData,
+        balances,
+        currentPrices,
+        portfolioUsd,
+      });
+
+      if (ruleTrades.length > 0) {
+        console.log(`Rule engine found ${ruleTrades.length} trade(s) (no API cost):`);
+        for (const rt of ruleTrades) {
+          console.log(`  ${rt.rule}: ${rt.action} ${rt.token} $${rt.amount_usd} (${rt.confidence}%)`);
+          const trade = await executeTrade(rt.action, rt.token, rt.amount_usd);
+          if (trade) {
+            if (rt.action === "buy") {
+              const price = currentPrices[rt.token] || rt.amount_usd;
+              recordEntry(rt.token, price, rt.amount_usd);
+            } else if (rt.action === "sell") {
+              clearPosition(rt.token);
+            }
+          }
+          logTrade({
+            timestamp: cycleStart.toISOString(),
+            cycle: cycleCount,
+            ...rt,
+            executed: !!trade,
+            mode: PAPER_MODE ? "paper" : "live",
+            source: "rule_engine",
+          });
+        }
+        // Use first rule trade as the "decision" for dashboard display
+        decision = { ...ruleTrades[0], market_summary: `Rule engine: ${ruleTrades.length} trade(s)`, risk_notes: "Automated rule-based trade (zero API cost)" };
+      } else {
+        decision = {
+          action: "hold",
+          token: "usdc",
+          amount_usd: null,
+          confidence: 45,
+          reasoning: `SMART-SKIP: No material market change, no rule triggers (${aiCallPolicy.reason})`,
+          market_summary: "State unchanged, no rule-based signals fired",
+          risk_notes: "Capital preserved; force-analysis window still active.",
+          timeframe_alignment: "unchanged",
+          expected_edge_pct: 0,
+        };
+      }
+      console.log(`Skipping Claude call (${aiCallPolicy.reason})${ruleTrades.length > 0 ? ` — but executed ${ruleTrades.length} rule trade(s)` : ""}`);
     }
 
     if (failsafe) {
@@ -384,7 +421,42 @@ async function runCycle() {
       executed,
       failsafe: failsafe || false,
       mode: PAPER_MODE ? "paper" : "live",
+      source: "claude",
     });
+
+    // 8b. Execute additional trades from Claude (multi-trade per call)
+    const additionalTrades = decision.additional_trades || [];
+    if (additionalTrades.length > 0) {
+      console.log(`\nExecuting ${additionalTrades.length} additional trade(s):`);
+      for (const at of additionalTrades) {
+        if (!at.action || !at.token || at.action === "hold") continue;
+        const atToken = at.token?.toLowerCase();
+        if (!knownTokens.has(atToken)) continue;
+        if (typeof at.amount_usd !== "number" || at.amount_usd <= 0) continue;
+
+        console.log(`  ${at.action} ${atToken} $${at.amount_usd} (${at.confidence}%)`);
+        const atTrade = await executeTrade(at.action, atToken, at.amount_usd);
+        if (atTrade) {
+          if (at.action === "buy") {
+            recordEntry(atToken, currentPrices[atToken] || at.amount_usd, at.amount_usd);
+          } else if (at.action === "sell") {
+            clearPosition(atToken);
+          }
+        }
+        logTrade({
+          timestamp: cycleStart.toISOString(),
+          cycle: cycleCount,
+          action: at.action,
+          token: atToken,
+          amount_usd: at.amount_usd,
+          confidence: at.confidence || 50,
+          reasoning: at.reasoning || "Additional trade from Claude",
+          executed: !!atTrade,
+          mode: PAPER_MODE ? "paper" : "live",
+          source: "claude_additional",
+        });
+      }
+    }
 
     // 9. Self-review check
     if (shouldReview()) {

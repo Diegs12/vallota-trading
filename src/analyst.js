@@ -91,16 +91,20 @@ ${strategy ? `\n${strategy}\n` : ""}
 ${lessons ? `\nSELF-IMPROVEMENT NOTES (from reviewing your past trades):\n${lessons}\n` : ""}
 
 RESPONSE FORMAT (strict JSON):
+Return your PRIMARY trade decision, plus up to 3 additional trades if you see opportunities across different tokens. More trades = more data = faster learning.
 {
   "action": "buy" | "sell" | "hold",
   "token": "eth" | "usdc" | "aero" | etc,
   "amount_usd": number | null,
   "confidence": 0-100,
   "expected_edge_pct": number,
-  "reasoning": "brief explanation referencing specific indicators",
+  "reasoning": "brief explanation referencing specific indicators and knowledge base thresholds",
   "market_summary": "1-2 sentence market overview",
   "risk_notes": "any concerns",
-  "timeframe_alignment": "do multiple timeframes agree? which ones?"
+  "timeframe_alignment": "do multiple timeframes agree? which ones?",
+  "additional_trades": [
+    { "action": "buy|sell", "token": "symbol", "amount_usd": number, "confidence": 0-100, "reasoning": "why" }
+  ]
 }`;
 }
 
