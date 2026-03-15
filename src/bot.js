@@ -340,75 +340,8 @@ async function runCycle() {
       decision.reasoning = "BLOCKED — invalid parameters: " + decision.reasoning;
     }
 
-    // Risk cap by account size + profile ceiling
-    const profile = RISK_PROFILES[RISK_PROFILE] || RISK_PROFILES.moderate;
-    const riskCapUsd = (portfolioUsd * PER_TRADE_RISK_PCT) / 100;
-    const profileCapUsd = (portfolioUsd * profile.maxPositionPct) / 100;
-    const hardCapUsd = Math.max(0, Math.min(riskCapUsd, profileCapUsd));
-    if (
-      decision.action === "buy" &&
-      typeof decision.amount_usd === "number" &&
-      decision.amount_usd > hardCapUsd &&
-      hardCapUsd > 0
-    ) {
-      decision.risk_notes = `${decision.risk_notes || ""} | Clamped by risk cap to $${hardCapUsd.toFixed(2)}`;
-      decision.amount_usd = parseFloat(hardCapUsd.toFixed(2));
-    }
-
-    // Edge/cost filter: skip low-edge, low-notional churn.
-    if (decision.action !== "hold") {
-      const amount = Number(decision.amount_usd || 0);
-      if (amount > 0 && amount < MIN_TRADE_USD) {
-        decision.action = "hold";
-        decision.reasoning = `BLOCKED — trade below minimum notional ($${MIN_TRADE_USD})`;
-      } else {
-        const hasEdge = Number.isFinite(Number(decision.expected_edge_pct));
-        const estEdgeBps = hasEdge
-          ? Number(decision.expected_edge_pct) * 100
-          : Math.max(0, (Number(decision.confidence || 0) - 50) * 4);
-        const netEdgeBps = estEdgeBps - ESTIMATED_ROUND_TRIP_COST_BPS;
-        if (hasEdge) {
-          if (netEdgeBps < MIN_NET_EDGE_BPS) {
-            decision.action = "hold";
-            decision.reasoning = `BLOCKED — insufficient net edge (${netEdgeBps.toFixed(1)} bps after costs)`;
-          }
-        } else if ((decision.confidence || 0) < MIN_CONFIDENCE_WITHOUT_EDGE) {
-          decision.action = "hold";
-          decision.reasoning = `BLOCKED — confidence < ${MIN_CONFIDENCE_WITHOUT_EDGE} without explicit edge estimate`;
-        }
-      }
-    }
-
-    // Core holdings protection: keep minimum $100 in ETH
-    const CORE_FLOOR_USD = parseFloat(process.env.CORE_HOLDING_FLOOR_USD || "100");
-    const CORE_TOKEN = (process.env.CORE_HOLDING_TOKEN || "btc").toLowerCase();
-    // Match btc, cbbtc, bitcoin — all refer to the same core holding
-    const CORE_ALIASES = new Set([CORE_TOKEN, "btc", "cbbtc", "bitcoin"]);
-    const decisionToken = decision.token?.toLowerCase();
-    if (decision.action === "sell" && CORE_ALIASES.has(decisionToken)) {
-      // Check all BTC aliases for combined balance
-      const balances = await getBalances();
-      const tokenBalance = (balances[decisionToken] || 0);
-      const tokenPrice = currentPrices[decisionToken] || currentPrices["btc"] || currentPrices["cbbtc"] || 0;
-      const tokenValueUsd = tokenBalance * tokenPrice;
-      const sellAmount = decision.amount_usd || tokenValueUsd;
-      if (tokenValueUsd - sellAmount < CORE_FLOOR_USD && tokenValueUsd > 0) {
-        const maxSellable = Math.max(0, tokenValueUsd - CORE_FLOOR_USD);
-        if (maxSellable < MIN_TRADE_USD) {
-          decision.action = "hold";
-          decision.reasoning = `BLOCKED — would breach $${CORE_FLOOR_USD} core ${CORE_TOKEN.toUpperCase()} floor`;
-        } else {
-          decision.amount_usd = parseFloat(maxSellable.toFixed(2));
-          decision.risk_notes = `${decision.risk_notes || ""} | Clamped to protect $${CORE_FLOOR_USD} ${CORE_TOKEN.toUpperCase()} floor`;
-        }
-      }
-    }
-
-    // Daily kill-switch blocks new buys, but still allows sells/risk reduction.
-    if (dailyRiskLocked && decision.action === "buy") {
-      decision.action = "hold";
-      decision.reasoning = `BLOCKED — daily drawdown lock active (${dailyDrawdownPct.toFixed(2)}%)`;
-    }
+    // In data-collection mode: no risk caps, no edge filters, no daily kill-switch.
+    // Let Claude make whatever trade it wants. We learn from everything.
 
     if (decision.action !== "hold" && decision.confidence >= minConfidence) {
       if (!PAPER_MODE && !LIVE_TRADING_ENABLED) {

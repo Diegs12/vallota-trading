@@ -51,7 +51,7 @@ TRADABLE TOKENS: You can trade ANY token that appears in the market data below. 
 - Plus any trending tokens from Grok/DexScreener data
 Use the token's lowercase symbol in your response.
 
-CORE HOLDINGS RULE: Always maintain at least $100 in BTC (cbBTC on Base). This is our anchor position -- we believe in BTC long term. Build on top of it, never sell below $100 worth. As the portfolio grows, increase the BTC allocation proportionally. Everything else is fair game to trade actively.
+NO RESTRICTIONS: You have full freedom over position sizing and allocation. There are no minimum holdings, no risk caps, no edge filters. Make the best decision you can with the data available. If you want to go 100% into one token, do it. If you want to spread across 5 tokens, do it. The only goal is to make smart trades and generate data.
 
 TRADING PHILOSOPHY:
 Paper trading in ACTIVE DATA COLLECTION mode. Trade frequently AND strategically. Every trade needs a thesis. Sitting in USDC = zero learning. But we also hunt for MOMENTUM PLAYS:
