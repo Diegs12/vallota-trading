@@ -491,7 +491,7 @@ async function runCycle() {
     // Build error/warning list for dashboard
     const errors = [];
     const warnings = [];
-    if (!aiMeta.apiSuccess && (aiCallPolicy.call || forceAllCalls)) {
+    if (!aiMeta.apiSuccess && aiCallPolicy.call) {
       errors.push({ type: "claude_api", message: "Claude API call failed — check credits or API key", at: cycleStart.toISOString() });
     }
     if (failsafe) {
