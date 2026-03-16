@@ -30,7 +30,7 @@ railway variables set \
   ANALYSIS_INTERVAL_MS="${ANALYSIS_INTERVAL_MS:-120000}" \
   XAI_API_KEY="$XAI_API_KEY" \
   RESEND_API_KEY="$RESEND_API_KEY" \
-  RECAP_EMAIL="${RECAP_EMAIL:-dvallota12@gmail.com}" \
+  RECAP_EMAIL="${RECAP_EMAIL:-dvallota10@gmail.com}" \
   RECAP_FREQUENCY="${RECAP_FREQUENCY:-daily}" \
   RECAP_THEME="${RECAP_THEME:-clean}" \
   BOT_INSTANCE_ID="${BOT_INSTANCE_ID:-primary}" \
