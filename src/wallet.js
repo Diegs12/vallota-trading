@@ -153,11 +153,15 @@ async function executeOrder(action, productId, token, amountUsd) {
     };
   } else if (action === "sell") {
     if (amountUsd === null || amountUsd === undefined) {
-      // Sell entire balance
+      // Sell entire balance — truncate to reasonable precision per Coinbase rules
       const bal = await getBalance(token);
       if (bal <= 0) { console.log(`[LIVE] No ${token} to sell`); return null; }
-      orderConfig = { market_market_ioc: { base_size: bal.toFixed(8) } };
-      console.log(`[LIVE] SELL ALL ${token.toUpperCase()} — ${bal} tokens`);
+      // Coinbase allows max 8 decimals, but some tokens need fewer
+      // Truncate (not round) to avoid selling more than we have
+      const truncated = Math.floor(bal * 1e6) / 1e6;
+      if (truncated <= 0) { console.log(`[LIVE] ${token} balance too small to sell`); return null; }
+      orderConfig = { market_market_ioc: { base_size: truncated.toString() } };
+      console.log(`[LIVE] SELL ALL ${token.toUpperCase()} — ${truncated} tokens`);
     } else {
       // Sell specific USD amount
       const price = currentPrices[token];
