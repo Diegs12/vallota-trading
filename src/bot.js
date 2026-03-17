@@ -64,16 +64,99 @@ let aiCallsMade = 0;
 let aiCallsSkipped = 0;
 let livePortfolioUsd = 0;
 
-// Mirror a trade to the live wallet, scaling amount proportionally
+// Smart live wallet: rebalances to match paper, sells before buys
+let liveRebalanced = false;
+let livePriceMap = {};
+
+async function rebalanceLiveWallet(paperBalances, paperPortfolioUsd) {
+  if (!liveWallet || liveRebalanced) return;
+  liveRebalanced = true;
+
+  console.log("\n[LIVE] Initial rebalance — syncing live wallet to paper strategy...");
+  try {
+    const liveBalances = await liveWallet.getBalances();
+    const paperTokens = new Set(Object.keys(paperBalances || {}).map(t => t.toLowerCase()));
+
+    // Step 1: Sell everything paper doesn't hold
+    for (const [token, amount] of Object.entries(liveBalances)) {
+      const t = token.toLowerCase();
+      if (t === "usd" || t === "usdc") continue;
+      if (paperTokens.has(t)) continue;
+      const price = livePriceMap[t] || 0;
+      const value = amount * price;
+      if (value < 0.50) continue;
+      console.log(`  [LIVE] Selling ${t.toUpperCase()} ($${value.toFixed(2)}) — not in paper strategy`);
+      try { await liveWallet.executeTrade("sell", t, value); } catch (e) { console.warn(`  [LIVE] Sell ${t} failed: ${e.message}`); }
+    }
+
+    // Step 2: Buy paper's holdings with freed cash
+    const fresh = await liveWallet.getBalances();
+    let cash = (fresh.usd || 0) + (fresh.usdc || 0);
+    if (cash < 1) { console.log("  [LIVE] No cash after sells — will retry next cycle"); liveRebalanced = false; return; }
+
+    const allocs = [];
+    for (const [token, amount] of Object.entries(paperBalances)) {
+      const t = token.toLowerCase();
+      if (t === "usdc" || t === "usd") continue;
+      const value = amount * (livePriceMap[t] || 0);
+      const pct = paperPortfolioUsd > 0 ? value / paperPortfolioUsd : 0;
+      if (pct > 0.01) allocs.push({ token: t, pct });
+    }
+    allocs.sort((a, b) => b.pct - a.pct);
+    const totalPct = allocs.reduce((s, a) => s + a.pct, 0) || 1;
+
+    for (const a of allocs) {
+      const amt = Math.floor((a.pct / totalPct) * cash * 100) / 100;
+      if (amt < 1) continue;
+      console.log(`  [LIVE] Buying ${a.token.toUpperCase()} $${amt}`);
+      try { await liveWallet.executeTrade("buy", a.token, amt); } catch (e) { console.warn(`  [LIVE] Buy ${a.token} failed: ${e.message}`); }
+    }
+    console.log("[LIVE] Rebalance complete.\n");
+  } catch (err) {
+    console.warn(`[LIVE] Rebalance failed: ${err.message}`);
+    liveRebalanced = false;
+  }
+}
+
+// Mirror trades to live wallet, selling other positions to fund buys if needed
 async function mirrorToLive(action, token, paperAmountUsd, paperPortfolioUsd) {
   if (!liveWallet) return;
   try {
-    // Scale proportionally: if paper trades 5% of portfolio, live trades 5% too
     const pct = paperPortfolioUsd > 0 ? paperAmountUsd / paperPortfolioUsd : 0;
-    const liveAmount = Math.max(1, Math.round(pct * livePortfolioUsd * 100) / 100);
-    if (liveAmount < 1) return; // Skip tiny trades
-    console.log(`  [LIVE MIRROR] ${action} ${token} $${liveAmount} (${(pct * 100).toFixed(1)}% of live portfolio)`);
-    await liveWallet.executeTrade(action, token, liveAmount);
+    let liveAmount = Math.max(1, Math.round(pct * livePortfolioUsd * 100) / 100);
+    if (liveAmount < 1) return;
+
+    if (action === "buy") {
+      const bal = await liveWallet.getBalances();
+      let cash = (bal.usd || 0) + (bal.usdc || 0);
+
+      // Sell largest non-target holding to fund the buy
+      if (cash < liveAmount) {
+        const sellable = Object.entries(bal)
+          .filter(([t]) => t !== "usd" && t !== "usdc" && t !== token.toLowerCase())
+          .map(([t, amt]) => ({ token: t, value: amt * (livePriceMap[t] || 0) }))
+          .filter(s => s.value > 0.50)
+          .sort((a, b) => b.value - a.value);
+
+        for (const s of sellable) {
+          if (cash >= liveAmount) break;
+          console.log(`  [LIVE] Selling ${s.token.toUpperCase()} ($${s.value.toFixed(2)}) to fund ${token.toUpperCase()}`);
+          try {
+            await liveWallet.executeTrade("sell", s.token, s.value);
+            cash += s.value;
+          } catch (e) { console.warn(`  [LIVE] Sell failed: ${e.message}`); }
+        }
+        liveAmount = Math.min(liveAmount, Math.floor(cash * 100) / 100);
+      }
+
+      if (liveAmount >= 1) {
+        console.log(`  [LIVE MIRROR] buy ${token} $${liveAmount} (${(pct * 100).toFixed(1)}%)`);
+        await liveWallet.executeTrade("buy", token, liveAmount);
+      }
+    } else if (action === "sell") {
+      console.log(`  [LIVE MIRROR] sell ${token} $${liveAmount}`);
+      await liveWallet.executeTrade("sell", token, liveAmount);
+    }
   } catch (err) {
     console.warn(`  [LIVE MIRROR] Failed: ${err.message}`);
   }
@@ -196,6 +279,7 @@ async function runCycle() {
       priceMap[t.symbol.toLowerCase()] = t.current_price;
     });
     paperWallet.updatePrices(priceMap);
+    livePriceMap = priceMap;
     if (liveWallet && liveWallet.updatePrices) {
       liveWallet.updatePrices(priceMap);
     }
@@ -246,6 +330,11 @@ async function runCycle() {
       livePortfolio: livePortfolioData,
       benchmark: benchmarkReturns,
     });
+
+    // Rebalance live wallet to match paper on first cycle
+    if (liveWallet && !liveRebalanced) {
+      await rebalanceLiveWallet(pv.balances, portfolioUsd);
+    }
 
     // 4b. Daily drawdown kill-switch (prevents new risk after severe down day)
     const nowAnchor = getUtcDayAnchor();
