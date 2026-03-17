@@ -192,7 +192,26 @@ Respond with JSON only.`;
   try {
     decision = JSON.parse(jsonMatch[0]);
   } catch (parseErr) {
-    throw new Error("Claude returned malformed JSON: " + parseErr.message);
+    // Try to fix common Claude JSON issues
+    let fixed = jsonMatch[0]
+      .replace(/,\s*([}\]])/g, "$1")          // trailing commas
+      .replace(/\n/g, " ")                     // newlines in strings
+      .replace(/[\x00-\x1f]/g, " ")           // control characters
+      .replace(/,\s*,/g, ",")                  // double commas
+      .replace(/"\s*\.\.\.\s*"/g, '""')        // ellipsis strings
+      .replace(/\.\.\./g, "");                 // bare ellipsis
+    try {
+      decision = JSON.parse(fixed);
+    } catch {
+      // Last resort: extract just the primary trade fields
+      const action = text.match(/"action"\s*:\s*"(\w+)"/)?.[1] || "hold";
+      const token = text.match(/"token"\s*:\s*"(\w+)"/)?.[1] || "usdc";
+      const amount = parseFloat(text.match(/"amount_usd"\s*:\s*(\d+\.?\d*)/)?.[1]) || null;
+      const confidence = parseInt(text.match(/"confidence"\s*:\s*(\d+)/)?.[1]) || 50;
+      const reasoning = text.match(/"reasoning"\s*:\s*"([^"]{0,200})"/)?.[1] || "Parsed from malformed response";
+      decision = { action, token, amount_usd: amount, confidence, reasoning, market_summary: "JSON parse fallback", risk_notes: "Response had syntax errors" };
+      console.warn("Used regex fallback to parse Claude response");
+    }
   }
 
   // Validate required fields exist and have correct types
