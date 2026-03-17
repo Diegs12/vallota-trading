@@ -26,15 +26,23 @@ const { shouldRunStrategy, runDailyStrategy } = require("./daily-strategist");
 const { evaluateRules } = require("./rule-engine");
 
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || "primary";
+const { initBenchmark, getBenchmarkReturns } = require("./benchmark");
 
-// Choose real or paper wallet based on mode
-const PAPER_MODE = process.env.TRADING_MODE !== "live";
-const LIVE_TRADING_ENABLED = process.env.LIVE_TRADING_ENABLED === "true";
-const walletModule = PAPER_MODE
-  ? require("./paper-wallet")
-  : require("./wallet");
-const { getBalances, executeTrade, getWalletAddress } = walletModule;
-const paperWallet = PAPER_MODE ? walletModule : null;
+// Always run paper wallet for data collection
+const paperWallet = require("./paper-wallet");
+
+// Also run live wallet if enabled
+const LIVE_ENABLED = process.env.TRADING_MODE === "live" && process.env.LIVE_TRADING_ENABLED === "true";
+let liveWallet = null;
+if (LIVE_ENABLED) {
+  liveWallet = require("./wallet");
+}
+
+// Primary wallet for bot decisions (paper for analysis, live executes alongside)
+const PAPER_MODE = !LIVE_ENABLED; // For backward compat in logs/dashboard
+const LIVE_TRADING_ENABLED = LIVE_ENABLED;
+const walletModule = paperWallet;
+const { getBalances, executeTrade, getWalletAddress } = paperWallet;
 
 const INTERVAL = parseInt(process.env.ANALYSIS_INTERVAL_MS || "300000", 10); // default 5m
 const RISK_PROFILE = process.env.RISK_PROFILE || "moderate";
@@ -54,6 +62,22 @@ let dayAnchor = null;
 let dayStartPortfolioUsd = null;
 let aiCallsMade = 0;
 let aiCallsSkipped = 0;
+let livePortfolioUsd = 0;
+
+// Mirror a trade to the live wallet, scaling amount proportionally
+async function mirrorToLive(action, token, paperAmountUsd, paperPortfolioUsd) {
+  if (!liveWallet) return;
+  try {
+    // Scale proportionally: if paper trades 5% of portfolio, live trades 5% too
+    const pct = paperPortfolioUsd > 0 ? paperAmountUsd / paperPortfolioUsd : 0;
+    const liveAmount = Math.max(1, Math.round(pct * livePortfolioUsd * 100) / 100);
+    if (liveAmount < 1) return; // Skip tiny trades
+    console.log(`  [LIVE MIRROR] ${action} ${token} $${liveAmount} (${(pct * 100).toFixed(1)}% of live portfolio)`);
+    await liveWallet.executeTrade(action, token, liveAmount);
+  } catch (err) {
+    console.warn(`  [LIVE MIRROR] Failed: ${err.message}`);
+  }
+}
 
 function getUtcDayAnchor(ts = Date.now()) {
   const d = new Date(ts);
@@ -81,7 +105,7 @@ async function runCycle() {
   const cycleStart = new Date();
   console.log(`\n${"=".repeat(60)}`);
   console.log(
-    `Cycle #${cycleCount} | ${cycleStart.toISOString()} | ${PAPER_MODE ? "PAPER" : "LIVE"} MODE`
+    `Cycle #${cycleCount} | ${cycleStart.toISOString()} | PAPER${LIVE_ENABLED ? " + LIVE" : ""} MODE`
   );
   console.log(`Risk: ${RISK_PROFILE} | Interval: ${INTERVAL / 1000}s`);
   console.log(`${"=".repeat(60)}`);
@@ -166,13 +190,19 @@ async function runCycle() {
       riskProfile: RISK_PROFILE,
     });
 
-    // 3. Update wallet prices (needed for both paper and live sell calculations)
+    // 3. Update wallet prices for both paper and live
     const priceMap = {};
     (marketData.prices || []).forEach((t) => {
       priceMap[t.symbol.toLowerCase()] = t.current_price;
     });
-    if (walletModule.updatePrices) {
-      walletModule.updatePrices(priceMap);
+    paperWallet.updatePrices(priceMap);
+    if (liveWallet && liveWallet.updatePrices) {
+      liveWallet.updatePrices(priceMap);
+    }
+
+    // 3b. Initialize benchmark on first cycle
+    if (cycleCount === 1) {
+      initBenchmark(priceMap);
     }
 
     // 4. Get current portfolio
@@ -185,22 +215,37 @@ async function runCycle() {
     };
 
     let portfolioUsd = 0;
-    if (paperWallet) {
-      const pv = paperWallet.getPortfolioValue();
-      console.log(
-        `Portfolio: $${pv.totalValue} | P&L: $${pv.pnl} (${pv.pnlPercent}%)`
-      );
-      portfolio.portfolioValue = pv;
-      updateLiveState({ portfolio: pv });
-      portfolioUsd = pv.totalValue || 0;
-    } else {
-      console.log("Balances: [redacted from logs — check dashboard]");
-      updateLiveState({ portfolio: { balances } });
-      portfolioUsd = estimatePortfolioUsd(
-        balances,
-        Object.fromEntries((marketData.prices || []).map((t) => [t.symbol.toLowerCase(), t.current_price]))
-      );
+    const pv = paperWallet.getPortfolioValue();
+    console.log(
+      `Paper Portfolio: $${pv.totalValue.toLocaleString()} | P&L: $${pv.pnl.toLocaleString()} (${pv.pnlPercent}%)`
+    );
+    portfolio.portfolioValue = pv;
+    portfolioUsd = pv.totalValue || 0;
+
+    // Track live wallet alongside paper
+    let livePortfolioData = null;
+    if (liveWallet) {
+      try {
+        const liveBalances = await liveWallet.getBalances();
+        livePortfolioUsd = estimatePortfolioUsd(
+          liveBalances,
+          Object.fromEntries((marketData.prices || []).map((t) => [t.symbol.toLowerCase(), t.current_price]))
+        );
+        livePortfolioData = { balances: liveBalances, totalValueUsd: Math.round(livePortfolioUsd * 100) / 100 };
+        console.log(`Live Portfolio: $${livePortfolioUsd.toFixed(2)}`);
+      } catch (err) {
+        console.warn(`Live wallet read failed: ${err.message}`);
+      }
     }
+
+    // Get benchmark returns
+    const benchmarkReturns = getBenchmarkReturns(priceMap);
+
+    updateLiveState({
+      portfolio: pv,
+      livePortfolio: livePortfolioData,
+      benchmark: benchmarkReturns,
+    });
 
     // 4b. Daily drawdown kill-switch (prevents new risk after severe down day)
     const nowAnchor = getUtcDayAnchor();
@@ -303,6 +348,8 @@ async function runCycle() {
             } else if (rt.action === "sell") {
               clearPosition(rt.token);
             }
+            // Mirror to live wallet
+            await mirrorToLive(rt.action, rt.token, rt.amount_usd, portfolioUsd);
           }
           logTrade({
             timestamp: cycleStart.toISOString(),
@@ -406,6 +453,9 @@ async function runCycle() {
         } else if (decision.action === "sell") {
           clearPosition(decision.token);
         }
+
+        // Mirror to live wallet (proportionally scaled)
+        await mirrorToLive(decision.action, decision.token, decision.amount_usd, portfolioUsd);
       }
     } else {
       console.log(
@@ -442,6 +492,8 @@ async function runCycle() {
           } else if (at.action === "sell") {
             clearPosition(atToken);
           }
+          // Mirror to live wallet
+          await mirrorToLive(at.action, atToken, at.amount_usd, portfolioUsd);
         }
         logTrade({
           timestamp: cycleStart.toISOString(),
@@ -563,31 +615,32 @@ async function start() {
   ║         VALLOTA TRADING BOT v1.0          ║
   ║         Base L2 | Coinbase CDP            ║
   ╠═══════════════════════════════════════════╣
-  ║  Mode:     ${(PAPER_MODE ? "PAPER (simulated)" : "LIVE (real money)").padEnd(30)}║
+  ║  Paper:    $${(process.env.TRADING_CAPITAL_USD || "1000").padEnd(29)}║
+  ║  Live:     ${(LIVE_ENABLED ? "CONNECTED" : "OFF").padEnd(30)}║
   ║  Risk:     ${RISK_PROFILE.padEnd(30)}║
   ║  Interval: ${(INTERVAL / 1000 + "s").padEnd(30)}║
-  ║  Capital:  $${(process.env.TRADING_CAPITAL_USD || "1000").padEnd(29)}║
   ╠═══════════════════════════════════════════╣
   ║  Features:                                ║
+  ║  ✓ Dual wallet (paper + live)             ║
+  ║  ✓ Market benchmark tracking              ║
   ║  ✓ Computed TA (RSI, MACD, Bollinger)     ║
   ║  ✓ Multi-timeframe (5m, 1h, 4h, 1d)      ║
   ║  ✓ Hard stop-losses                       ║
-  ║  ✓ Claude failsafe                        ║
   ║  ✓ Self-review & learning loop            ║
-  ║  ✓ Trade logging & 24h summaries          ║
   ╚═══════════════════════════════════════════╝
   `);
 
-  if (PAPER_MODE) {
-    console.log(
-      "Running in PAPER MODE — no real trades will be executed.\n" +
-      "Set TRADING_MODE=live in .env to switch to real trading.\n"
-    );
-  } else if (!LIVE_TRADING_ENABLED) {
-    console.warn(
-      "LIVE mode requested but LIVE_TRADING_ENABLED is false.\n" +
-      "Trades will be analyzed but NOT executed until you set LIVE_TRADING_ENABLED=true."
-    );
+  if (LIVE_ENABLED) {
+    console.log("DUAL MODE: Paper ($" + (process.env.TRADING_CAPITAL_USD || "1000") + ") + Live (Coinbase account)");
+    console.log("Every trade executes on both wallets (live scaled proportionally).\n");
+    try {
+      await liveWallet.initCoinbase();
+    } catch (err) {
+      console.error("Failed to connect live wallet:", err.message);
+      console.warn("Continuing with paper-only mode.\n");
+    }
+  } else {
+    console.log("PAPER MODE: $" + (process.env.TRADING_CAPITAL_USD || "1000") + " simulated capital.\n");
   }
 
   // Start dashboard server

@@ -209,6 +209,62 @@ app.get("/api/costs", (req, res) => {
   res.json(liveState.costs || {});
 });
 
+app.get("/api/benchmark", (req, res) => {
+  res.json(liveState.benchmark || null);
+});
+
+app.get("/api/live-portfolio", (req, res) => {
+  res.json(liveState.livePortfolio || null);
+});
+
+// Combined scorecard: paper vs live vs market vs costs
+app.get("/api/scorecard", (req, res) => {
+  const paper = liveState.portfolio || {};
+  const live = liveState.livePortfolio || null;
+  const bench = liveState.benchmark || {};
+  const costs = liveState.costs || {};
+
+  const paperReturnPct = paper.pnlPercent || 0;
+  const apiCosts = costs.totals?.api_all_time_usd || 0;
+  const paperNetPnl = (paper.pnl || 0) - apiCosts;
+  const paperNetReturnPct = paper.startingCapital
+    ? (paperNetPnl / paper.startingCapital) * 100
+    : 0;
+
+  res.json({
+    paper: {
+      totalValue: paper.totalValue || 0,
+      pnl: paper.pnl || 0,
+      returnPct: round(paperReturnPct),
+      netPnl: round(paperNetPnl),
+      netReturnPct: round(paperNetReturnPct),
+    },
+    live: live ? {
+      totalValue: live.totalValueUsd || 0,
+      balances: live.balances || {},
+    } : null,
+    benchmark: {
+      btcReturnPct: bench.btc?.returnPct || 0,
+      ethReturnPct: bench.eth?.returnPct || 0,
+      basketReturnPct: bench.cryptoBasket?.returnPct || 0,
+    },
+    costs: {
+      totalApiUsd: apiCosts,
+      runRateMonthly: costs.totals?.api_run_rate_monthly_usd || 0,
+    },
+    alpha: {
+      vsBtc: round(paperReturnPct - (bench.btc?.returnPct || 0)),
+      vsBasket: round(paperReturnPct - (bench.cryptoBasket?.returnPct || 0)),
+      netVsBtc: round(paperNetReturnPct - (bench.btc?.returnPct || 0)),
+    },
+    since: bench.startedAt || null,
+  });
+});
+
+function round(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 // Catch-all error handler — never leak stack traces
 app.use((err, req, res, next) => {
   console.error("API error:", err.message);
