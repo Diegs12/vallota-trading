@@ -2,7 +2,7 @@ const { Coinbase, Wallet } = require("@coinbase/coinbase-sdk");
 const fs = require("fs");
 const path = require("path");
 
-const WALLET_FILE = path.join(__dirname, "..", "wallet-seed.json");
+const WALLET_FILE = path.join(__dirname, "..", "data", "wallet-seed.json");
 
 let coinbase;
 let wallet;
@@ -10,11 +10,25 @@ let wallet;
 async function initCoinbase() {
   if (coinbase) return coinbase;
 
-  coinbase = Coinbase.configureFromJson({
-    filePath: path.join(__dirname, "..", "cdp_api_key.json"),
-  });
+  // Prefer env vars (secure for Railway) over file on disk
+  const keyName = process.env.CDP_API_KEY_NAME;
+  const privateKey = process.env.CDP_API_KEY_PRIVATE_KEY;
 
-  console.log("Coinbase CDP initialized");
+  if (keyName && privateKey) {
+    coinbase = Coinbase.configure({
+      apiKeyName: keyName,
+      privateKey: privateKey.replace(/\\n/g, "\n"),
+    });
+    console.log("Coinbase CDP initialized from env vars");
+  } else {
+    const keyFile = path.join(__dirname, "..", "cdp_api_key.json");
+    if (!fs.existsSync(keyFile)) {
+      throw new Error("No CDP credentials found. Set CDP_API_KEY_NAME and CDP_API_KEY_PRIVATE_KEY env vars, or provide cdp_api_key.json");
+    }
+    coinbase = Coinbase.configureFromJson({ filePath: keyFile });
+    console.log("Coinbase CDP initialized from file");
+  }
+
   return coinbase;
 }
 
@@ -34,7 +48,9 @@ async function getOrCreateWallet() {
   // Create new wallet on Base network
   wallet = await Wallet.create({ networkId: Coinbase.networks.BaseMainnet });
 
-  // Save seed for recovery
+  // Save seed for recovery (on Railway volume, survives deploys)
+  const dir = path.dirname(WALLET_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const seedData = wallet.export();
   fs.writeFileSync(WALLET_FILE, JSON.stringify(seedData, null, 2));
   console.log("Created new wallet:", wallet.getDefaultAddress()?.getId());

@@ -63,7 +63,7 @@ Paper trading in ACTIVE DATA COLLECTION mode. Trade frequently AND strategically
 MEME COIN / PUMP STRATEGY:
 - When Grok reports a token surging on social media, consider a quick momentum play
 - Pump timing: most social-driven pumps last 2-8 hours. Get in early, set a mental exit
-- Position size for meme plays: $20-75 max (small bets, high frequency)
+- Position size for meme plays: 0.5-2% of portfolio (small bets, high frequency)
 - If Grok says "early stage" pump, that's a buy signal. "Late stage" = stay away or short
 - DexScreener trending tokens on Base = immediate attention. Check the data and consider entry
 - Take profits fast on meme plays. 5-10% gain = sell. Don't get greedy on pump plays
@@ -81,7 +81,7 @@ RULES:
 9. One strong timeframe signal is enough to act. Don't require all to align.
 10. Grok social intelligence: trending tokens and sentiment spikes are ACTIONABLE. If Grok reports a token going viral, consider a momentum entry immediately.
 11. DERIVATIVES: extreme funding rates = fade the crowd. High-conviction contrarian signal.
-12. When in doubt between hold and a small position, take the small position ($20-50).
+12. When in doubt between hold and a small position, take the small position (0.5-1% of portfolio).
 13. Confidence of 50+ is enough to trade. Even 0.3% expected edge is worth capturing.
 14. FOLLOW THE DAILY STRATEGY from Opus (below) -- it sets regime, bias, and game plan.
 15. Always explain your thesis clearly. What's the setup, why now, what's the exit plan?
@@ -91,7 +91,7 @@ ${strategy ? `\n${strategy}\n` : ""}
 ${lessons ? `\nSELF-IMPROVEMENT NOTES (from reviewing your past trades):\n${lessons}\n` : ""}
 
 RESPONSE FORMAT (strict JSON):
-Return your PRIMARY trade decision, plus up to 3 additional trades if you see opportunities across different tokens. More trades = more data = faster learning.
+Return your PRIMARY trade decision, plus up to 8 additional trades across different tokens. With a large portfolio, SPREAD capital across many tokens to maximize data collection and diversification. Every token you trade teaches us something. More trades = more data = faster learning = MORE MONEY.
 {
   "action": "buy" | "sell" | "hold",
   "token": "eth" | "usdc" | "aero" | etc,

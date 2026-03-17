@@ -10,15 +10,36 @@ const STATE_FILE = path.join(__dirname, "..", "data", "paper-portfolio.json");
 let currentPrices = {};
 
 function loadState() {
+  const targetCapital = parseFloat(process.env.TRADING_CAPITAL_USD) || 1000;
+
   if (fs.existsSync(STATE_FILE)) {
-    return JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
+    const state = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
+
+    // Capital injection: if TRADING_CAPITAL_USD increased, deposit the difference
+    if (targetCapital > state.startingCapital) {
+      const injection = targetCapital - state.startingCapital;
+      state.balances.usdc = (state.balances.usdc || 0) + injection;
+      state.startingCapital = targetCapital;
+      state.tradeHistory.push({
+        action: "deposit",
+        token: "usdc",
+        usdAmount: injection,
+        tokenAmount: injection,
+        price: 1,
+        timestamp: new Date().toISOString(),
+        note: `Capital injection: $${state.startingCapital - injection} -> $${targetCapital}`,
+      });
+      saveState(state);
+      console.log(`[PAPER] Capital injection: +$${injection.toLocaleString()} USDC (new total capital: $${targetCapital.toLocaleString()})`);
+    }
+
+    return state;
   }
 
-  const capital = parseFloat(process.env.TRADING_CAPITAL_USD) || 1000;
   const initial = {
-    balances: { usdc: capital },
+    balances: { usdc: targetCapital },
     tradeHistory: [],
-    startingCapital: capital,
+    startingCapital: targetCapital,
     createdAt: new Date().toISOString(),
   };
   saveState(initial);
