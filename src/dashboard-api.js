@@ -6,6 +6,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { getTradeStats, getTradesLast24h, getRecentTrades, getReviews } = require("./trade-log");
 const { getPositions } = require("./stop-loss");
+const { getHistory } = require("./portfolio-history");
 
 const app = express();
 const PORT = process.env.PORT || process.env.DASHBOARD_PORT || 3333;
@@ -211,6 +212,11 @@ app.get("/api/costs", (req, res) => {
 
 app.get("/api/benchmark", (req, res) => {
   res.json(liveState.benchmark || null);
+});
+
+app.get("/api/history", (req, res) => {
+  const hours = Math.min(Math.max(parseInt(req.query.hours) || 168, 1), 8760);
+  res.json(getHistory(hours));
 });
 
 app.get("/api/live-portfolio", (req, res) => {

@@ -24,6 +24,7 @@ const { shouldCallAI } = require("./decision-policy");
 const { addCostEvent, getCostSummary } = require("./cost-tracker");
 const { shouldRunStrategy, runDailyStrategy } = require("./daily-strategist");
 const { evaluateRules } = require("./rule-engine");
+const { recordSnapshot } = require("./portfolio-history");
 
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || "primary";
 const { initBenchmark, getBenchmarkReturns } = require("./benchmark");
@@ -356,6 +357,16 @@ async function runCycle() {
       portfolio: pv,
       livePortfolio: livePortfolioData,
       benchmark: benchmarkReturns,
+    });
+
+    // Record portfolio snapshot for history charting
+    recordSnapshot({
+      paperValue: pv.totalValue || 0,
+      paperPnlPct: pv.pnlPercent || 0,
+      liveValue: livePortfolioData?.totalValueUsd || 0,
+      btcPrice: priceMap["btc"] || 0,
+      ethPrice: priceMap["eth"] || 0,
+      solPrice: priceMap["sol"] || 0,
     });
 
     // Rebalance live wallet to match paper on first cycle
