@@ -141,8 +141,32 @@ async function executeTrade(action, assetId, amountUsd) {
   return await executeOrder(action, productId, token, amountUsd);
 }
 
+// Cache product info (base_increment) to avoid repeated lookups
+const productInfoCache = {};
+
+async function getProductPrecision(productId) {
+  if (productInfoCache[productId]) return productInfoCache[productId];
+  try {
+    const info = await cbFetch("GET", `/api/v3/brokerage/products/${productId}`);
+    const increment = parseFloat(info.base_increment || "0.000001");
+    const minSize = parseFloat(info.base_min_size || "0.000001");
+    // Calculate decimal places from increment (e.g., 0.001 = 3 decimals, 1 = 0 decimals)
+    const decimals = increment >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(increment)));
+    productInfoCache[productId] = { decimals, minSize, increment };
+    return productInfoCache[productId];
+  } catch {
+    return { decimals: 6, minSize: 0.000001, increment: 0.000001 };
+  }
+}
+
+function truncateToIncrement(value, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.floor(value * factor) / factor;
+}
+
 async function executeOrder(action, productId, token, amountUsd) {
   const clientOrderId = `vt-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  const { decimals, minSize } = await getProductPrecision(productId);
 
   let orderConfig;
   if (action === "buy") {
@@ -153,25 +177,22 @@ async function executeOrder(action, productId, token, amountUsd) {
     };
   } else if (action === "sell") {
     if (amountUsd === null || amountUsd === undefined) {
-      // Sell entire balance — truncate to reasonable precision per Coinbase rules
+      // Sell entire balance
       const bal = await getBalance(token);
       if (bal <= 0) { console.log(`[LIVE] No ${token} to sell`); return null; }
-      // Coinbase allows max 8 decimals, but some tokens need fewer
-      // Truncate (not round) to avoid selling more than we have
-      const truncated = Math.floor(bal * 1e6) / 1e6;
-      if (truncated <= 0) { console.log(`[LIVE] ${token} balance too small to sell`); return null; }
+      const truncated = truncateToIncrement(bal, decimals);
+      if (truncated < minSize) { console.log(`[LIVE] ${token} balance (${truncated}) below minimum (${minSize})`); return null; }
       orderConfig = { market_market_ioc: { base_size: truncated.toString() } };
-      console.log(`[LIVE] SELL ALL ${token.toUpperCase()} — ${truncated} tokens`);
+      console.log(`[LIVE] SELL ALL ${token.toUpperCase()} — ${truncated} tokens (${decimals} decimals)`);
     } else {
-      // Sell specific USD amount
       const price = currentPrices[token];
       if (!price || price <= 0) {
         console.error(`[LIVE] No price for ${token}, cannot calculate sell size`);
         return null;
       }
-      const baseSize = amountUsd / price;
-      const precision = price > 1000 ? 8 : 6;
-      orderConfig = { market_market_ioc: { base_size: baseSize.toFixed(precision) } };
+      const baseSize = truncateToIncrement(amountUsd / price, decimals);
+      if (baseSize < minSize) { console.log(`[LIVE] ${token} sell amount below minimum`); return null; }
+      orderConfig = { market_market_ioc: { base_size: baseSize.toString() } };
     }
   } else {
     console.log("[LIVE] Holding — no trade executed.");
