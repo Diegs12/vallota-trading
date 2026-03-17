@@ -25,7 +25,9 @@ function buildJwt(method, path) {
 
   const now = Math.floor(Date.now() / 1000);
   const nonce = crypto.randomBytes(16).toString("hex");
-  const uri = `${method.toUpperCase()} api.coinbase.com${path}`;
+  // Strip query params from URI for JWT signing (Coinbase requires path only)
+  const pathOnly = path.split("?")[0];
+  const uri = `${method.toUpperCase()} api.coinbase.com${pathOnly}`;
 
   const header = { alg: "ES256", kid: apiKeyName, nonce, typ: "JWT" };
   const payload = {
