@@ -77,39 +77,66 @@ async function rebalanceLiveWallet(paperBalances, paperPortfolioUsd) {
     const liveBalances = await liveWallet.getBalances();
     const paperTokens = new Set(Object.keys(paperBalances || {}).map(t => t.toLowerCase()));
 
-    // Step 1: Sell everything paper doesn't hold
+    console.log("  [LIVE] Current holdings:", JSON.stringify(liveBalances));
+    console.log("  [LIVE] Paper holds:", [...paperTokens].join(", "));
+
+    // Step 1: Sell EVERYTHING to USD (consolidate), then rebuy paper's positions
+    // This is the cleanest approach for a small account
     for (const [token, amount] of Object.entries(liveBalances)) {
       const t = token.toLowerCase();
       if (t === "usd" || t === "usdc") continue;
-      if (paperTokens.has(t)) continue;
-      const price = livePriceMap[t] || 0;
-      const value = amount * price;
-      if (value < 0.50) continue;
-      console.log(`  [LIVE] Selling ${t.toUpperCase()} ($${value.toFixed(2)}) — not in paper strategy`);
-      try { await liveWallet.executeTrade("sell", t, value); } catch (e) { console.warn(`  [LIVE] Sell ${t} failed: ${e.message}`); }
+      if (amount <= 0) continue;
+
+      // For tokens paper also holds, keep them
+      if (paperTokens.has(t)) {
+        console.log(`  [LIVE] Keeping ${t.toUpperCase()} (paper holds it)`);
+        continue;
+      }
+
+      // Sell to USD — use null amount to sell everything
+      console.log(`  [LIVE] Selling ALL ${t.toUpperCase()} (${amount} tokens)`);
+      try {
+        await liveWallet.executeTrade("sell", t, null);
+      } catch (e) {
+        console.warn(`  [LIVE] Sell ${t} failed: ${e.message}`);
+      }
     }
 
-    // Step 2: Buy paper's holdings with freed cash
+    // Step 2: Check how much cash we freed up
     const fresh = await liveWallet.getBalances();
     let cash = (fresh.usd || 0) + (fresh.usdc || 0);
-    if (cash < 1) { console.log("  [LIVE] No cash after sells — will retry next cycle"); liveRebalanced = false; return; }
+    console.log(`  [LIVE] Available cash after sells: $${cash.toFixed(2)}`);
 
+    if (cash < 1) {
+      console.log("  [LIVE] Insufficient cash — will retry next cycle");
+      liveRebalanced = false;
+      return;
+    }
+
+    // Step 3: Buy paper's top holdings proportionally
     const allocs = [];
     for (const [token, amount] of Object.entries(paperBalances)) {
       const t = token.toLowerCase();
       if (t === "usdc" || t === "usd") continue;
-      const value = amount * (livePriceMap[t] || 0);
+      const price = livePriceMap[t] || 0;
+      const value = amount * price;
       const pct = paperPortfolioUsd > 0 ? value / paperPortfolioUsd : 0;
       if (pct > 0.01) allocs.push({ token: t, pct });
     }
     allocs.sort((a, b) => b.pct - a.pct);
     const totalPct = allocs.reduce((s, a) => s + a.pct, 0) || 1;
 
+    // Reserve 10% as cash buffer for future trades
+    const deployableCash = Math.floor(cash * 0.9 * 100) / 100;
     for (const a of allocs) {
-      const amt = Math.floor((a.pct / totalPct) * cash * 100) / 100;
+      const amt = Math.floor((a.pct / totalPct) * deployableCash * 100) / 100;
       if (amt < 1) continue;
-      console.log(`  [LIVE] Buying ${a.token.toUpperCase()} $${amt}`);
-      try { await liveWallet.executeTrade("buy", a.token, amt); } catch (e) { console.warn(`  [LIVE] Buy ${a.token} failed: ${e.message}`); }
+      console.log(`  [LIVE] Buying ${a.token.toUpperCase()} $${amt} (${(a.pct * 100).toFixed(1)}%)`);
+      try {
+        await liveWallet.executeTrade("buy", a.token, amt);
+      } catch (e) {
+        console.warn(`  [LIVE] Buy ${a.token} failed: ${e.message}`);
+      }
     }
     console.log("[LIVE] Rebalance complete.\n");
   } catch (err) {

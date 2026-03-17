@@ -152,20 +152,23 @@ async function executeOrder(action, productId, token, amountUsd) {
       },
     };
   } else if (action === "sell") {
-    // Convert USD amount to token amount using current price
-    const price = currentPrices[token];
-    if (!price || price <= 0) {
-      console.error(`[LIVE] No price for ${token}, cannot calculate sell size`);
-      return null;
+    if (amountUsd === null || amountUsd === undefined) {
+      // Sell entire balance
+      const bal = await getBalance(token);
+      if (bal <= 0) { console.log(`[LIVE] No ${token} to sell`); return null; }
+      orderConfig = { market_market_ioc: { base_size: bal.toFixed(8) } };
+      console.log(`[LIVE] SELL ALL ${token.toUpperCase()} — ${bal} tokens`);
+    } else {
+      // Sell specific USD amount
+      const price = currentPrices[token];
+      if (!price || price <= 0) {
+        console.error(`[LIVE] No price for ${token}, cannot calculate sell size`);
+        return null;
+      }
+      const baseSize = amountUsd / price;
+      const precision = price > 1000 ? 8 : 6;
+      orderConfig = { market_market_ioc: { base_size: baseSize.toFixed(precision) } };
     }
-    const baseSize = amountUsd / price;
-    // Use enough precision for the token
-    const precision = price > 1000 ? 8 : 6;
-    orderConfig = {
-      market_market_ioc: {
-        base_size: baseSize.toFixed(precision),
-      },
-    };
   } else {
     console.log("[LIVE] Holding — no trade executed.");
     return null;
