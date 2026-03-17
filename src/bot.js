@@ -166,13 +166,13 @@ async function runCycle() {
       riskProfile: RISK_PROFILE,
     });
 
-    // 3. Update paper wallet prices if in paper mode
-    if (paperWallet) {
-      const priceMap = {};
-      (marketData.prices || []).forEach((t) => {
-        priceMap[t.symbol.toLowerCase()] = t.current_price;
-      });
-      paperWallet.updatePrices(priceMap);
+    // 3. Update wallet prices (needed for both paper and live sell calculations)
+    const priceMap = {};
+    (marketData.prices || []).forEach((t) => {
+      priceMap[t.symbol.toLowerCase()] = t.current_price;
+    });
+    if (walletModule.updatePrices) {
+      walletModule.updatePrices(priceMap);
     }
 
     // 4. Get current portfolio

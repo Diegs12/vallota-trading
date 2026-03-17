@@ -1,117 +1,212 @@
-const { Coinbase, Wallet } = require("@coinbase/coinbase-sdk");
-const fs = require("fs");
-const path = require("path");
+// Live wallet — trades directly from user's Coinbase account via Advanced Trade API
+// Uses CDP API key (JWT auth) to place market orders on the exchange
 
-const WALLET_FILE = path.join(__dirname, "..", "data", "wallet-seed.json");
+const crypto = require("crypto");
+const { URL } = require("url");
 
-let coinbase;
-let wallet;
+const API_BASE = "https://api.coinbase.com";
+
+let apiKeyName;
+let privateKey;
+let currentPrices = {};
+
+function loadCredentials() {
+  if (apiKeyName && privateKey) return;
+  apiKeyName = process.env.CDP_API_KEY_NAME;
+  const rawKey = process.env.CDP_API_KEY_PRIVATE_KEY;
+  if (!apiKeyName || !rawKey) {
+    throw new Error("Missing CDP_API_KEY_NAME or CDP_API_KEY_PRIVATE_KEY env vars");
+  }
+  privateKey = rawKey.replace(/\\n/g, "\n");
+}
+
+function buildJwt(method, path) {
+  loadCredentials();
+
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const uri = `${method.toUpperCase()} api.coinbase.com${path}`;
+
+  const header = { alg: "ES256", kid: apiKeyName, nonce, typ: "JWT" };
+  const payload = {
+    sub: apiKeyName,
+    iss: "cdp",
+    aud: ["cdp_service"],
+    nbf: now,
+    exp: now + 120,
+    uris: [uri],
+  };
+
+  const b64url = (obj) =>
+    Buffer.from(JSON.stringify(obj)).toString("base64url");
+  const signingInput = `${b64url(header)}.${b64url(payload)}`;
+
+  const sign = crypto.createSign("SHA256");
+  sign.update(signingInput);
+  const sig = sign
+    .sign({ key: privateKey, dsaEncoding: "ieee-p1363" })
+    .toString("base64url");
+
+  return `${signingInput}.${sig}`;
+}
+
+async function cbFetch(method, path, body = null) {
+  const jwt = buildJwt(method, path);
+  const opts = {
+    method,
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      "Content-Type": "application/json",
+    },
+  };
+  if (body) opts.body = JSON.stringify(body);
+
+  const res = await fetch(`${API_BASE}${path}`, opts);
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Coinbase API ${res.status}: ${text}`);
+  }
+  return JSON.parse(text);
+}
+
+// --- Interface methods (matches paper-wallet.js) ---
 
 async function initCoinbase() {
-  if (coinbase) return coinbase;
-
-  // Prefer env vars (secure for Railway) over file on disk
-  const keyName = process.env.CDP_API_KEY_NAME;
-  const privateKey = process.env.CDP_API_KEY_PRIVATE_KEY;
-
-  if (keyName && privateKey) {
-    coinbase = Coinbase.configure({
-      apiKeyName: keyName,
-      privateKey: privateKey.replace(/\\n/g, "\n"),
-    });
-    console.log("Coinbase CDP initialized from env vars");
-  } else {
-    const keyFile = path.join(__dirname, "..", "cdp_api_key.json");
-    if (!fs.existsSync(keyFile)) {
-      throw new Error("No CDP credentials found. Set CDP_API_KEY_NAME and CDP_API_KEY_PRIVATE_KEY env vars, or provide cdp_api_key.json");
-    }
-    coinbase = Coinbase.configureFromJson({ filePath: keyFile });
-    console.log("Coinbase CDP initialized from file");
-  }
-
-  return coinbase;
+  loadCredentials();
+  // Verify credentials by listing accounts
+  const data = await cbFetch("GET", "/api/v3/brokerage/accounts?limit=1");
+  console.log("Coinbase Advanced Trade API connected — trading from your account");
+  return true;
 }
 
 async function getOrCreateWallet() {
-  if (wallet) return wallet;
+  // No wallet to create — we trade from the user's existing account
+  return { id: "coinbase-exchange" };
+}
 
-  await initCoinbase();
-
-  // Try to load existing wallet
-  if (fs.existsSync(WALLET_FILE)) {
-    const seedData = JSON.parse(fs.readFileSync(WALLET_FILE, "utf-8"));
-    wallet = await Wallet.import(seedData);
-    console.log("Loaded existing wallet:", wallet.getDefaultAddress()?.getId());
-    return wallet;
-  }
-
-  // Create new wallet on Base network
-  wallet = await Wallet.create({ networkId: Coinbase.networks.BaseMainnet });
-
-  // Save seed for recovery (on Railway volume, survives deploys)
-  const dir = path.dirname(WALLET_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const seedData = wallet.export();
-  fs.writeFileSync(WALLET_FILE, JSON.stringify(seedData, null, 2));
-  console.log("Created new wallet:", wallet.getDefaultAddress()?.getId());
-  console.log("IMPORTANT: Fund this wallet with USDC on Base to start trading");
-
-  return wallet;
+function updatePrices(prices) {
+  currentPrices = prices;
 }
 
 async function getBalance(assetId = "usdc") {
-  const w = await getOrCreateWallet();
-  const balance = await w.getBalance(assetId);
-  return parseFloat(balance.toString());
+  const balances = await getBalances();
+  return balances[assetId.toLowerCase()] || 0;
 }
 
 async function getBalances() {
-  const w = await getOrCreateWallet();
-  const balances = await w.listBalances();
   const result = {};
-  for (const [asset, amount] of balances) {
-    result[asset] = parseFloat(amount.toString());
-  }
+  let cursor = null;
+
+  // Paginate through accounts
+  do {
+    const qs = cursor
+      ? `/api/v3/brokerage/accounts?limit=50&cursor=${cursor}`
+      : "/api/v3/brokerage/accounts?limit=50";
+    const data = await cbFetch("GET", qs);
+
+    for (const acct of data.accounts || []) {
+      const bal = parseFloat(acct.available_balance?.value || "0");
+      if (bal > 0) {
+        result[acct.currency.toLowerCase()] = bal;
+      }
+    }
+    cursor = data.cursor || null;
+  } while (cursor);
+
   return result;
 }
 
-async function executeTrade(action, assetId, amount) {
-  const w = await getOrCreateWallet();
+async function executeTrade(action, assetId, amountUsd) {
+  const token = assetId.toLowerCase();
+  const productId = `${token.toUpperCase()}-USD`;
 
+  // Validate the product exists
+  try {
+    await cbFetch("GET", `/api/v3/brokerage/products/${productId}`);
+  } catch (err) {
+    // Try USDC pair as fallback
+    const usdcProductId = `${token.toUpperCase()}-USDC`;
+    try {
+      await cbFetch("GET", `/api/v3/brokerage/products/${usdcProductId}`);
+      return await executeOrder(action, usdcProductId, token, amountUsd);
+    } catch {
+      console.error(`No trading pair found for ${token} (tried ${productId} and ${usdcProductId})`);
+      return null;
+    }
+  }
+
+  return await executeOrder(action, productId, token, amountUsd);
+}
+
+async function executeOrder(action, productId, token, amountUsd) {
+  const clientOrderId = `vt-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+
+  let orderConfig;
   if (action === "buy") {
-    // Trade USDC for the target asset
-    console.log(`Buying ${amount} USDC worth of ${assetId}...`);
-    const trade = await w.createTrade({
-      amount: amount,
-      fromAssetId: "usdc",
-      toAssetId: assetId,
-    });
-    await trade.wait();
-    console.log(`Trade complete: bought ${assetId}`, trade.getTransaction()?.getTransactionHash());
-    return trade;
+    orderConfig = {
+      market_market_ioc: {
+        quote_size: amountUsd.toFixed(2),
+      },
+    };
+  } else if (action === "sell") {
+    // Convert USD amount to token amount using current price
+    const price = currentPrices[token];
+    if (!price || price <= 0) {
+      console.error(`[LIVE] No price for ${token}, cannot calculate sell size`);
+      return null;
+    }
+    const baseSize = amountUsd / price;
+    // Use enough precision for the token
+    const precision = price > 1000 ? 8 : 6;
+    orderConfig = {
+      market_market_ioc: {
+        base_size: baseSize.toFixed(precision),
+      },
+    };
+  } else {
+    console.log("[LIVE] Holding — no trade executed.");
+    return null;
   }
 
-  if (action === "sell") {
-    // Trade the asset back to USDC
-    console.log(`Selling ${amount} of ${assetId} for USDC...`);
-    const trade = await w.createTrade({
-      amount: amount,
-      fromAssetId: assetId,
-      toAssetId: "usdc",
-    });
-    await trade.wait();
-    console.log(`Trade complete: sold ${assetId}`, trade.getTransaction()?.getTransactionHash());
-    return trade;
-  }
+  const order = {
+    client_order_id: clientOrderId,
+    product_id: productId,
+    side: action.toUpperCase(),
+    order_configuration: orderConfig,
+  };
 
-  console.log("Holding — no trade executed.");
-  return null;
+  console.log(`[LIVE] ${action.toUpperCase()} ${token} — $${amountUsd} on ${productId}...`);
+
+  try {
+    const result = await cbFetch("POST", "/api/v3/brokerage/orders", order);
+
+    if (result.success) {
+      const orderId = result.order_id || result.success_response?.order_id;
+      console.log(`[LIVE] Order placed: ${orderId}`);
+      // Return compatible interface
+      return {
+        getTransaction: () => ({
+          getTransactionHash: () => orderId || clientOrderId,
+        }),
+      };
+    } else {
+      const errMsg = result.error_response?.message || result.failure_reason || JSON.stringify(result);
+      console.error(`[LIVE] Order failed: ${errMsg}`);
+      return null;
+    }
+  } catch (err) {
+    console.error(`[LIVE] Trade error: ${err.message}`);
+    return null;
+  }
 }
 
 async function getWalletAddress() {
-  const w = await getOrCreateWallet();
-  const address = await w.getDefaultAddress();
-  return address.getId();
+  return "coinbase-exchange-account";
+}
+
+function getPortfolioValue() {
+  // Not used in live mode — the bot reads balances directly
+  return null;
 }
 
 module.exports = {
@@ -121,4 +216,6 @@ module.exports = {
   getBalances,
   executeTrade,
   getWalletAddress,
+  updatePrices,
+  getPortfolioValue,
 };
