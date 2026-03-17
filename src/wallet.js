@@ -34,7 +34,7 @@ function buildJwt(method, path) {
     aud: ["retail_rest_api_proxy"],
     nbf: now,
     exp: now + 120,
-    uris: [uri],
+    uri,
   };
 
   const b64url = (obj) =>
@@ -64,7 +64,8 @@ async function cbFetch(method, path, body = null) {
   const res = await fetch(`${API_BASE}${path}`, opts);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Coinbase API ${res.status}: ${text}`);
+    console.error(`Coinbase API error — ${res.status} ${method} ${path}: ${text.substring(0, 200)}`);
+    throw new Error(`Coinbase API ${res.status}: ${text.substring(0, 200)}`);
   }
   return JSON.parse(text);
 }
