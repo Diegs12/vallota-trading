@@ -30,8 +30,8 @@ function buildJwt(method, path) {
   const header = { alg: "ES256", kid: apiKeyName, nonce, typ: "JWT" };
   const payload = {
     sub: apiKeyName,
-    iss: "cdp",
-    aud: ["cdp_service"],
+    iss: "coinbase-cloud",
+    aud: ["retail_rest_api_proxy"],
     nbf: now,
     exp: now + 120,
     uris: [uri],
