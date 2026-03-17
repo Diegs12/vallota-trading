@@ -535,10 +535,10 @@ async function runCycle() {
     }
 
     // 13. Update operations + cost telemetry for dashboard
-    const pv = paperWallet ? paperWallet.getPortfolioValue() : null;
+    const pvLatest = paperWallet.getPortfolioValue();
     const costs = getCostSummary({
-      paperPnlUsd: pv?.pnl || 0,
-      startingCapitalUsd: pv?.startingCapital || parseFloat(process.env.TRADING_CAPITAL_USD || "1000"),
+      paperPnlUsd: pvLatest?.pnl || 0,
+      startingCapitalUsd: pvLatest?.startingCapital || parseFloat(process.env.TRADING_CAPITAL_USD || "1000"),
     });
     // Build error/warning list for dashboard
     const errors = [];
