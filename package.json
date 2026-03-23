@@ -15,7 +15,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/sdk": "^0.80.0",
     "@coinbase/coinbase-sdk": "^0.25.0",
     "@supabase/supabase-js": "^2.98.0",
     "dotenv": "^17.3.1",
